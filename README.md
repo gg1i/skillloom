@@ -7,7 +7,12 @@ SkillLoom is a **100% local, extension-only Chromium MV3 browser extension** (Ch
 - **Optional Local AI / BYOK:** Connect local **Ollama** / **LM Studio** (loopback-only) or your own API key (**Gemini**, **Groq**, **OpenRouter**, **OpenAI**) for multimodal enrichment and automatic 1-pass quality repair.
 - **Plan A (Direct Install) & Plan B (Copy Prompt / ZIP):** Install directly into your agent's skills directory via the browser File System Access API, or copy the full prompt / download a pure-browser PKZIP package.
 
-## Quick Start
+## Install
+
+- **Microsoft Edge Add-ons (1-Click Install):** [Get SkillLoom on Microsoft Edge Add-ons](https://microsoftedge.microsoft.com/addons/detail/skillloom-%E2%80%94-free-localfi/hgonifdpcgeeoenaffajegmlceinnihn)
+- **Chrome / Brave / Opera (Manual Sideload):** Download `skillloom-chromium-mv3-extension.zip` from [GitHub Releases](https://github.com/gg1i/skillloom/releases/tag/v2.0.0), unzip it, open `chrome://extensions` (or `brave://extensions` / `opera://extensions`), enable **Developer mode**, and click **Load unpacked**.
+
+## Build From Source
 
 ```bash
 npm run lint
@@ -15,11 +20,7 @@ npm test
 npm run package:release
 ```
 
-Then open `chrome://extensions` or `edge://extensions`, enable **Developer Mode**, click **Load unpacked**, and choose:
-
-```
-dist-release/skillloom-chromium-extension
-```
+Then load `dist-release/skillloom-chromium-extension` via **Developer Mode → Load unpacked**.
 
 ## Documentation
 

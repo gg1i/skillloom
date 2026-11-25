@@ -2,7 +2,7 @@
   "version": "2.0.0",
   "productName": "SkillLoom",
   "businessModel": "free-local-first-extension-only",
-  "publicationNotice": "Store packages are built and submission-ready. Do NOT claim store publication until each browser store approves the package and issues its final production Extension ID.",
+  "publicationNotice": "Live on Microsoft Edge Add-ons. Chrome Web Store and Opera Add-ons remain unpublished until approved.",
   "stores": [
     {
       "id": "chrome-web-store",
@@ -17,10 +17,11 @@
       "id": "microsoft-edge-addons",
       "browserName": "Microsoft Edge",
       "storeName": "Microsoft Edge Add-ons",
-      "publicationStatus": "UNPUBLISHED_STORE_SUBMISSION_READY",
-      "extensionId": "REPLACE_WITH_APPROVED_EDGE_ADDONS_ID",
+      "publicationStatus": "PUBLISHED",
+      "extensionId": "hgonifdpcgeeoenaffajegmlceinnihn",
+      "storeUrl": "https://microsoftedge.microsoft.com/addons/detail/skillloom-%E2%80%94-free-localfi/hgonifdpcgeeoenaffajegmlceinnihn",
       "zipFileName": "skillloom-microsoft-edge-addons-v2.0.0.zip",
-      "notes": "Independent Microsoft Edge Add-ons Manifest V3 package. Zero native host or companion binary required."
+      "notes": "Published and live on Microsoft Edge Add-ons. Zero native host or companion binary required."
     },
     {
       "id": "brave-compatible",

@@ -20,6 +20,7 @@ interface StoreDistributionConfig {
     storeName: string;
     publicationStatus: string;
     extensionId: string;
+    storeUrl?: string;
     zipFileName: string;
     notes: string;
   }>;
@@ -328,6 +329,7 @@ export async function buildReleaseArtifacts(rootDir = process.cwd()): Promise<{
   }
 
   // 5. Write release manifest documenting all extension artifacts
+  const publishedCount = distConfig.stores.filter((s) => s.publicationStatus === 'PUBLISHED').length;
   const manifestPath = path.join(releaseDir, 'release-manifest.json');
   fs.writeFileSync(
     manifestPath,
@@ -338,12 +340,18 @@ export async function buildReleaseArtifacts(rootDir = process.cwd()): Promise<{
         architecture: 'extension-only-local-first',
         businessModel: distConfig.businessModel,
         builtAt: new Date().toISOString(),
-        publicationStatus: 'UNPUBLISHED_STORE_SUBMISSION_READY',
+        publicationStatus:
+          publishedCount === distConfig.stores.length
+            ? 'PUBLISHED'
+            : publishedCount > 0
+              ? 'PARTIALLY_PUBLISHED'
+              : 'UNPUBLISHED_STORE_SUBMISSION_READY',
         targetBrowsers: distConfig.stores.map((s) => ({
           id: s.id,
           browser: s.browserName,
           storeName: s.storeName,
           publicationStatus: s.publicationStatus,
+          ...(s.storeUrl ? { storeUrl: s.storeUrl } : {}),
           zipPath: storeZips[s.id],
         })),
         artifacts: {
