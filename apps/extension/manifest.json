@@ -1,0 +1,58 @@
+{
+  "manifest_version": 3,
+  "name": "SkillLoom — Free Local-First Video & Reels to AI Skills",
+  "short_name": "SkillLoom",
+  "version": "2.0.0",
+  "description": "Turn YouTube tutorials & Instagram Reels into validated AI skills locally — auto-storyboards, BYOK/Ollama & 1-click repo install.",
+  "minimum_chrome_version": "114",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage",
+    "tabCapture",
+    "offscreen"
+  ],
+  "host_permissions": [
+    "https://www.youtube.com/*",
+    "https://www.instagram.com/*",
+    "https://instagram.com/*"
+  ],
+  "optional_host_permissions": [
+    "http://127.0.0.1/*",
+    "http://localhost/*",
+    "https://generativelanguage.googleapis.com/*",
+    "https://openrouter.ai/*",
+    "https://api.openai.com/*",
+    "https://api.groq.com/*"
+  ],
+  "background": {
+    "service_worker": "background/service-worker.js",
+    "type": "module"
+  },
+  "icons": {
+    "16": "icons/icon-16.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "action": {
+    "default_title": "Turn into Skill — SkillLoom (Local-First)",
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.youtube.com/*"],
+      "js": ["content/youtube-detector.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.instagram.com/*", "https://instagram.com/*"],
+      "js": ["content/instagram-detector.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

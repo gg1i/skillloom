@@ -1,0 +1,813 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SkillLoom — Smart Skill Studio</title>
+    <style>
+      :root {
+        --bg: #090d16;
+        --surface: #111827;
+        --surface-2: #182235;
+        --code-bg: #0b101b;
+        --border: rgba(148, 163, 184, 0.16);
+        --border-strong: rgba(148, 163, 184, 0.28);
+        --text: #f8fafc;
+        --muted: #94a3b8;
+        --accent: #14b8a6;
+        --accent-soft: rgba(20, 184, 166, 0.14);
+        --warn: #fbbf24;
+        --warn-soft: rgba(251, 191, 36, 0.14);
+        --danger: #f87171;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        padding: 20px;
+        overflow-x: hidden;
+        font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+        background: radial-gradient(circle at top left, rgba(20, 184, 166, 0.09), transparent 45%), var(--bg);
+        color: var(--text);
+        -webkit-font-smoothing: antialiased;
+      }
+
+      :is(button, a, summary, input, select, textarea):focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+      }
+
+      .studio-shell {
+        max-width: 1160px;
+        margin: 0 auto;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        min-width: 0;
+      }
+
+      .topbar {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 14px 18px;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 14px;
+        min-width: 0;
+      }
+
+      .brand-group {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex: 1 1 280px;
+        min-width: 0;
+      }
+
+      .brand-mark {
+        width: 34px;
+        height: 34px;
+        border-radius: 9px;
+        background: linear-gradient(135deg, #14b8a6, #0f766e);
+        display: grid;
+        place-items: center;
+        color: #fff;
+        flex-shrink: 0;
+        box-shadow: 0 3px 12px rgba(20, 184, 166, 0.28);
+      }
+
+      .title-stack {
+        flex: 1;
+        min-width: 0;
+      }
+
+      .video-title {
+        margin: 0;
+        font-size: 16px;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 100%;
+      }
+
+      .video-meta {
+        font-size: 12px;
+        color: var(--muted);
+        margin-top: 2px;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+      }
+
+      .slug-control {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+        min-width: 0;
+        max-width: 100%;
+      }
+
+      .slug-label {
+        font-size: 11.5px;
+        color: var(--muted);
+        font-weight: 500;
+      }
+
+      .slug-input {
+        background: var(--code-bg);
+        border: 1px solid var(--border-strong);
+        color: #5eead4;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 12px;
+        padding: 7px 10px;
+        border-radius: 8px;
+        width: 240px;
+        max-width: 100%;
+        min-width: 0;
+      }
+
+      .cov-pill {
+        font-size: 11px;
+        font-weight: 600;
+        padding: 5px 10px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        background: var(--surface-2);
+        color: #cbd5e1;
+        white-space: nowrap;
+      }
+
+      .cov-pill.rich {
+        color: #5eead4;
+        border-color: rgba(20, 184, 166, 0.35);
+        background: var(--accent-soft);
+      }
+
+      .cov-pill.warn {
+        color: var(--warn);
+        border-color: rgba(251, 191, 36, 0.35);
+        background: var(--warn-soft);
+      }
+
+      .cov-pill.danger {
+        color: #fca5a5;
+        border-color: rgba(248, 113, 113, 0.38);
+        background: rgba(248, 113, 113, 0.14);
+      }
+
+      .quality-metrics {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-bottom: 8px;
+        font-size: 11px;
+        color: var(--muted);
+      }
+
+      .quality-gaps-list {
+        margin: 0;
+        padding-left: 16px;
+        font-size: 11.5px;
+        line-height: 1.45;
+        color: #cbd5e1;
+      }
+
+      .quality-gaps-list li {
+        margin-bottom: 3px;
+      }
+
+      .quality-ok {
+        font-size: 11.5px;
+        color: #5eead4;
+      }
+
+      .workspace-grid {
+        display: grid;
+        grid-template-columns: 356px minmax(0, 1fr);
+        gap: 16px;
+        align-items: start;
+        min-width: 0;
+      }
+
+      @media (max-width: 920px) {
+        .workspace-grid {
+          grid-template-columns: minmax(0, 1fr);
+        }
+      }
+
+      .sidebar {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        min-width: 0;
+      }
+
+      .panel {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 15px;
+        min-width: 0;
+      }
+
+      .panel-title {
+        font-size: 11.5px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--muted);
+        margin: 0 0 10px 0;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+      }
+
+      .plan-badge {
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        padding: 2px 7px;
+        border-radius: 999px;
+        color: #5eead4;
+        background: var(--accent-soft);
+        border: 1px solid rgba(20, 184, 166, 0.3);
+      }
+
+      .plan-divider {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 10px 0 8px 0;
+        font-size: 10.5px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--muted);
+      }
+
+      .plan-divider::after {
+        content: '';
+        flex: 1;
+        height: 1px;
+        background: var(--border);
+      }
+
+      .signal-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: 7px;
+      }
+
+      .signal-item {
+        background: var(--surface-2);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 7px 9px;
+        font-size: 11.5px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 6px;
+        color: #cbd5e1;
+        min-width: 0;
+      }
+
+      .signal-item span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .signal-item strong {
+        color: #f8fafc;
+        font-weight: 600;
+        flex-shrink: 0;
+      }
+
+      .signal-item.good {
+        border-color: rgba(20, 184, 166, 0.3);
+      }
+
+      .signal-item.good strong {
+        color: #5eead4;
+      }
+
+      .frames-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: 8px;
+      }
+
+      .frame-card {
+        background: var(--surface-2);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 6px;
+        min-width: 0;
+      }
+
+      .frame-media {
+        position: relative;
+        border-radius: 5px;
+        overflow: hidden;
+      }
+
+      .frame-media img {
+        width: 100%;
+        height: 76px;
+        object-fit: cover;
+        display: block;
+      }
+
+      .frame-ts {
+        position: absolute;
+        left: 4px;
+        bottom: 4px;
+        font-size: 10px;
+        background: rgba(9, 13, 22, 0.86);
+        color: #f8fafc;
+        padding: 1px 5px;
+        border-radius: 4px;
+      }
+
+      .frame-rm {
+        position: absolute;
+        right: 4px;
+        top: 4px;
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        border: none;
+        background: rgba(9, 13, 22, 0.85);
+        color: #fca5a5;
+        font-size: 11px;
+        line-height: 1;
+        cursor: pointer;
+        display: grid;
+        place-items: center;
+      }
+
+      .frame-rm:hover {
+        background: #dc2626;
+        color: #fff;
+      }
+
+      .frame-note {
+        width: 100%;
+        min-width: 0;
+        margin-top: 5px;
+        padding: 4px 6px;
+        background: var(--code-bg);
+        border: 1px solid var(--border);
+        border-radius: 5px;
+        color: #e2e8f0;
+        font-size: 11px;
+      }
+
+      .btn {
+        font-family: inherit;
+        border-radius: 9px;
+        font-size: 12.5px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 140ms ease;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        padding: 10px 14px;
+        min-width: 0;
+        max-width: 100%;
+        text-align: center;
+        line-height: 1.25;
+      }
+
+      .btn:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+
+      .btn-primary {
+        width: 100%;
+        border: none;
+        background: linear-gradient(180deg, #14b8a6 0%, #0d9488 100%);
+        color: #ffffff;
+        box-shadow: 0 2px 10px rgba(20, 184, 166, 0.25);
+        margin-bottom: 4px;
+      }
+
+      .btn-primary:hover:not(:disabled) {
+        filter: brightness(1.06);
+      }
+
+      .btn-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: 8px;
+        margin-bottom: 8px;
+      }
+
+      .btn-secondary {
+        background: var(--surface-2);
+        border: 1px solid var(--border-strong);
+        color: #e2e8f0;
+        padding: 9px 10px;
+        font-size: 12px;
+      }
+
+      .btn-secondary:hover:not(:disabled) {
+        background: #202c44;
+      }
+
+      .repo-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 10px;
+        padding: 8px 10px;
+        background: var(--code-bg);
+        border: 1px solid rgba(148, 163, 184, 0.18);
+        border-radius: 8px;
+        font-size: 12px;
+        min-width: 0;
+      }
+
+      .repo-status-label {
+        flex: 1;
+        min-width: 0;
+        color: #94a3b8;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .status-box {
+        position: relative;
+        overflow: hidden;
+        font-size: 12px;
+        line-height: 1.48;
+        color: #99f6e4;
+        background: var(--accent-soft);
+        border: 1px solid rgba(20, 184, 166, 0.3);
+        border-radius: 9px;
+        padding: 10px 12px;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+      }
+
+      .status-box.busy {
+        color: #e2e8f0;
+        background: var(--surface-2);
+        border-color: rgba(20, 184, 166, 0.38);
+      }
+
+      .status-box.busy::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 45%;
+        height: 2px;
+        background: linear-gradient(90deg, transparent, #2dd4bf, transparent);
+        animation: sl-studio-progress 1.15s ease-in-out infinite;
+      }
+
+      @keyframes sl-studio-progress {
+        0% {
+          transform: translateX(-100%);
+        }
+        100% {
+          transform: translateX(320%);
+        }
+      }
+
+      .status-box.error {
+        color: #fecaca;
+        background: rgba(248, 113, 113, 0.12);
+        border-color: rgba(248, 113, 113, 0.32);
+      }
+
+      .drawer summary {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--muted);
+        cursor: pointer;
+        user-select: none;
+        list-style: none;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .drawer summary::-webkit-details-marker {
+        display: none;
+      }
+
+      .drawer-badge {
+        font-size: 10.5px;
+        font-weight: 600;
+        color: #5eead4;
+        background: var(--accent-soft);
+        border: 1px solid rgba(20, 184, 166, 0.28);
+        padding: 2px 7px;
+        border-radius: 999px;
+        max-width: 140px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .drawer-badge.off {
+        color: var(--muted);
+        background: var(--surface-2);
+        border-color: var(--border);
+      }
+
+      .drawer-body {
+        margin-top: 10px;
+        padding-top: 10px;
+        border-top: 1px solid var(--border);
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .inspector-panel {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+      }
+
+      .inspector-bar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 10px 14px;
+        background: var(--surface-2);
+        border-bottom: 1px solid var(--border);
+      }
+
+      .tabs {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        min-width: 0;
+      }
+
+      .tab-btn {
+        font-family: inherit;
+        padding: 6px 11px;
+        border-radius: 7px;
+        border: 1px solid transparent;
+        background: transparent;
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 120ms ease;
+      }
+
+      .tab-btn:hover {
+        color: var(--text);
+        background: rgba(255, 255, 255, 0.04);
+      }
+
+      .tab-btn.active {
+        background: var(--bg);
+        border-color: var(--border-strong);
+        color: #5eead4;
+        font-weight: 600;
+      }
+
+      .copy-tab-btn {
+        font-family: inherit;
+        padding: 6px 10px;
+        border-radius: 7px;
+        border: 1px solid var(--border-strong);
+        background: var(--bg);
+        color: #cbd5e1;
+        font-size: 11.5px;
+        font-weight: 500;
+        cursor: pointer;
+        flex-shrink: 0;
+      }
+
+      .copy-tab-btn:hover {
+        border-color: var(--accent);
+        color: #5eead4;
+      }
+
+      .preview-box {
+        margin: 0;
+        padding: 18px;
+        background: var(--code-bg);
+        min-height: 490px;
+        max-height: calc(100vh - 190px);
+        overflow: auto;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        font-size: 12.5px;
+        line-height: 1.62;
+        white-space: pre-wrap;
+        word-break: break-word;
+        overflow-wrap: anywhere;
+        color: #e2e8f0;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="studio-shell">
+      <header class="topbar">
+        <div class="brand-group">
+          <span class="brand-mark" aria-hidden="true">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+              <path d="M2 17l10 5 10-5"/>
+              <path d="M2 12l10 5 10-5"/>
+            </svg>
+          </span>
+          <div class="title-stack">
+            <h1 class="video-title" id="video-title">Loading Skill Studio...</h1>
+            <div class="video-meta" id="video-meta">Preparing multi-signal evidence bundle</div>
+          </div>
+        </div>
+
+        <div class="slug-control">
+          <label class="slug-label" for="slug-input">Skill folder:</label>
+          <input
+            class="slug-input"
+            id="slug-input"
+            type="text"
+            spellcheck="false"
+            placeholder="custom-skill-slug"
+            aria-label="Skill folder slug name"
+          />
+          <span class="cov-pill" id="coverage-pill">MODERATE</span>
+        </div>
+      </header>
+
+      <main class="workspace-grid">
+        <aside class="sidebar">
+          <section class="panel" aria-label="Captured evidence signals">
+            <h2 class="panel-title">Captured Signals</h2>
+            <div class="signal-grid" id="signal-badges"></div>
+          </section>
+
+          <section class="panel" id="quality-panel" aria-label="Skill quality gate">
+            <h2 class="panel-title">
+              <span>Quality Gate</span>
+              <span class="cov-pill" id="studio-quality-badge">--/100</span>
+            </h2>
+            <div class="quality-metrics" id="studio-quality-metrics"></div>
+            <ul class="quality-gaps-list" id="studio-quality-gaps"></ul>
+          </section>
+
+          <section class="panel" id="frames-panel" style="display:none;" aria-label="Captured keyframes">
+            <h2 class="panel-title">Snapped Keyframes</h2>
+            <div class="frames-grid" id="frames-strip"></div>
+          </section>
+
+          <section class="panel">
+            <details class="drawer" id="manual-context-drawer">
+              <summary>
+                <span>Add Screenshots (Ctrl+V) or Caption</span>
+                <span aria-hidden="true">▾</span>
+              </summary>
+              <div class="drawer-body" style="gap:8px;padding-top:10px;">
+                <input
+                  id="manual-title-input"
+                  class="frame-note"
+                  style="margin-top:0;padding:7px 9px;font-size:12px;"
+                  type="text"
+                  placeholder="Optional skill title override..."
+                  aria-label="Optional skill title override"
+                />
+                <textarea
+                  id="manual-caption-input"
+                  class="frame-note"
+                  rows="4"
+                  style="margin-top:0;padding:7px 9px;font-size:12px;resize:vertical;font-family:inherit;"
+                  placeholder="Paste Reel caption, creator comment, links, or workflow notes here..."
+                  aria-label="Manual caption, comments, links, or workflow notes"
+                ></textarea>
+                <label class="btn btn-secondary" style="width:100%;cursor:pointer;font-size:12px;padding:8px 10px;" tabindex="0">
+                  <span>+ Upload Screenshots (or press Ctrl+V)</span>
+                  <input id="upload-frame-input" type="file" accept="image/*" multiple style="display:none;" />
+                </label>
+              </div>
+            </details>
+          </section>
+
+          <section class="panel" aria-label="Install and export options">
+            <h2 class="panel-title">
+              <span>Install to Agent</span>
+              <span class="plan-badge">Plan A · Recommended</span>
+            </h2>
+            <div class="repo-row">
+              <span id="repo-status-label" class="repo-status-label">Repo: Not chosen yet</span>
+              <button
+                class="copy-tab-btn"
+                id="choose-repo-btn"
+                type="button"
+                aria-label="Choose permanent Skills repository folder"
+              >
+                Choose Folder...
+              </button>
+            </div>
+            <button
+              class="btn btn-primary"
+              id="install-repo-btn"
+              type="button"
+              aria-label="Plan A: Install generated skill package directly to your Skills repository"
+            >
+              Install Skill to Repo (Auto)
+            </button>
+
+            <div class="plan-divider"><span>Plan B · Prompt &amp; Exports</span></div>
+            <div class="btn-grid">
+              <button
+                class="btn btn-secondary"
+                id="copy-prompt-btn"
+                type="button"
+                aria-label="Plan B: Copy full skill and evidence prompt for AI chat"
+                title="Plan B: Copy full skill + evidence for Antigravity, Claude, or ChatGPT"
+              >
+                Plan B: Copy Prompt
+              </button>
+              <button
+                class="btn btn-secondary"
+                id="download-files-btn"
+                type="button"
+                aria-label="Download complete skill package as a ZIP archive"
+              >
+                Download .zip
+              </button>
+            </div>
+            <div class="status-box busy" id="status-text" role="status" aria-live="polite">Compiling skill draft...</div>
+            <details class="drawer" style="margin-top:10px;">
+              <summary style="font-size:11.5px;color:#94a3b8;">
+                <span>More formats (Single SKILL.md)</span>
+                <span aria-hidden="true">▾</span>
+              </summary>
+              <div class="drawer-body" style="gap:6px;">
+                <button class="btn btn-secondary" id="download-md-btn" type="button">Download Single SKILL.md</button>
+              </div>
+            </details>
+          </section>
+
+          <section class="panel">
+            <details class="drawer" open>
+              <summary>
+                <span>AI Auto-Distill Engine</span>
+                <span class="drawer-badge off" id="studio-ai-badge">Draft Mode</span>
+              </summary>
+              <div class="drawer-body">
+                <div id="studio-ai-settings-host"></div>
+                <button
+                  class="btn btn-secondary"
+                  id="refine-local-ai-btn"
+                  type="button"
+                  aria-label="Distill SKILL.md now using the configured AI engine"
+                >
+                  Distill SKILL.md Now
+                </button>
+              </div>
+            </details>
+          </section>
+        </aside>
+
+        <section class="inspector-panel" aria-label="Skill file inspector">
+          <div class="inspector-bar">
+            <div class="tabs" id="preview-tabs" role="tablist" aria-label="Generated skill files"></div>
+            <button
+              class="copy-tab-btn"
+              id="copy-active-tab-btn"
+              type="button"
+              aria-label="Copy currently viewed file contents"
+            >
+              Copy Active File
+            </button>
+          </div>
+          <pre class="preview-box" id="skill-preview" role="tabpanel">Generating SKILL.md...</pre>
+        </section>
+      </main>
+    </div>
+    <script type="module" src="./handoff.js"></script>
+  </body>
+</html>
