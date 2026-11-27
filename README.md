@@ -1,16 +1,18 @@
-# SkillLoom — Turn YouTube Tutorials & Instagram Reels into Agent Skills
+# SkillLoom — Turn YouTube, Reels & X/Twitter into Agent Skills or Study Notes
 
-SkillLoom is a **100% local, extension-only Chromium MV3 browser extension** (Chrome, Edge, Brave, Opera) that converts YouTube tutorials and Instagram Reels into concise, structured, self-contained **Agent Skills (`SKILL.md`)**.
+SkillLoom is a **100% local, extension-only Chromium MV3 browser extension** (Edge, Chrome, Brave, Opera) with **2 output modes**:
 
+- **🤖 Agent Skill (`SKILL.md`):** Turn YouTube tutorials, Instagram Reels, and X / Twitter threads or videos into clean, audited AI Agent Skills.
+- **📚 Study Notes (`NOTES.md`):** Turn lectures, courses, and technical threads into Obsidian-ready revision notes with Active Recall flashcards and exam traps.
 - **Zero servers, zero accounts, zero telemetry.** Everything runs directly in your browser.
-- **Strong without any LLM:** The built-in rule-based distiller cleans transcripts, fixes technical ASR typos, extracts commands/prompts/links/versions, attaches `[mm:ss]` timestamps, adds generic domain checklists with clear provenance labels, and scores every skill before install.
-- **Optional Local AI / BYOK:** Connect local **Ollama** / **LM Studio** (loopback-only) or your own API key (**Gemini**, **Groq**, **OpenRouter**, **OpenAI**) for multimodal enrichment and automatic 1-pass quality repair.
-- **Plan A (Direct Install) & Plan B (Copy Prompt / ZIP):** Install directly into your agent's skills directory via the browser File System Access API, or copy the full prompt / download a pure-browser PKZIP package.
+- **Strong without any LLM:** Rule-based distiller cleans transcripts/threads, fixes technical ASR typos, extracts commands/links/versions, attaches `[mm:ss]` timestamps, and scores every output before install.
+- **Optional Local AI / BYOK:** Connect local **Ollama** / **LM Studio** (`127.0.0.1`) or your own API key (**Gemini**, **Groq**, **OpenRouter**, **OpenAI**) with live model auto-discovery.
+- **Plan A (Direct Folder Save) & Plan B (Copy Prompt / ZIP):** Save straight into your local Agent Skills folder (`~/.claude/skills`, `~/.gemini/config/skills`, `.cursor`, etc.) or your **Study Vault** folder via the File System Access API, or copy/ZIP in 1 click.
 
 ## Install
 
 - **Microsoft Edge Add-ons (1-Click Install):** [Get SkillLoom on Microsoft Edge Add-ons](https://microsoftedge.microsoft.com/addons/detail/skillloom-%E2%80%94-free-localfi/hgonifdpcgeeoenaffajegmlceinnihn)
-- **Chrome / Brave / Opera (Manual Sideload):** Download `skillloom-chromium-mv3-extension.zip` from [GitHub Releases](https://github.com/gg1i/skillloom/releases/tag/v2.0.0), unzip it, open `chrome://extensions` (or `brave://extensions` / `opera://extensions`), enable **Developer mode**, and click **Load unpacked**.
+- **Chrome / Brave / Opera (Manual Sideload):** Download `skillloom-chromium-mv3-extension.zip` from [GitHub Releases](https://github.com/gg1i/skillloom/releases/tag/v2.1.0), unzip it, open `chrome://extensions` (or `brave://extensions` / `opera://extensions`), enable **Developer mode**, and click **Load unpacked**.
 
 ## Build From Source
 

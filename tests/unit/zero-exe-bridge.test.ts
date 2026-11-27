@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, it } from 'node:test';
 import { extractVisibleInstagramContext } from '../../apps/extension/content/instagram-detector';
+import { extractVisibleTwitterContext } from '../../apps/extension/content/twitter-detector';
 import {
   distillSkillWithAiEngine,
   findWorkingModel,
@@ -15,6 +16,7 @@ import {
   buildFallbackInstagramVideoFromTab,
   computeStoryboardTimestamps,
   findBestVisibleVideo,
+  parseTwitterPostUrl,
   selectSpreadFrames,
   unwrapRedirectUrl,
 } from '../../apps/extension/lib/dom-extract-utils';
@@ -136,7 +138,7 @@ describe('SkillLoom Extension-Only Core Pipeline', () => {
       pageUrl: 'https://www.youtube.com/watch?v=DiEJJLDwgf4',
     });
     assert.equal(renamed.slug, 'reverse-eng-studio');
-    assert.equal(renamed.zipFilename, 'reverse-eng-studio-skill-v2.0.0.zip');
+    assert.equal(renamed.zipFilename, 'reverse-eng-studio-skill-v2.1.0.zip');
     assert.match(renamed.files[0].content, /^name: reverse-eng-studio$/m);
 
     // Verify 48-char slug truncation strips any trailing hyphen (prevents --skillloom-bundle.json)
@@ -1508,5 +1510,396 @@ describe('SkillLoom Extension-Only Core Pipeline', () => {
       recovered.pkg.files.find((f) => f.relativePath === 'references/source-evidence.md')?.content || '';
     assert.match(ev, /Spoken Audio Transcript \(BYOK Gemini\)/);
     assert.match(ev, /5 to 10 edited reference videos/);
+  });
+
+  it('discovers active Groq chat models via /openai/v1/models when default Llama models are unavailable', async () => {
+    const seenChatModels: string[] = [];
+    const mockFetch: typeof fetch = async (input, init) => {
+      const url = String(input);
+      if (url === 'https://api.groq.com/openai/v1/models') {
+        return new Response(
+          JSON.stringify({
+            data: [
+              { id: 'whisper-large-v3-turbo', active: true },
+              { id: 'meta-llama/llama-guard-4-12b', active: true },
+              { id: 'playai-tts', active: true },
+              { id: 'openai/gpt-oss-120b', active: true },
+              { id: 'qwen/qwen3-32b', active: true },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      if (url === 'https://api.groq.com/openai/v1/chat/completions') {
+        const body = JSON.parse(String(init?.body || '{}')) as { model?: string };
+        seenChatModels.push(String(body.model || ''));
+        if (body.model === 'openai/gpt-oss-120b') {
+          return new Response(
+            JSON.stringify({
+              choices: [{ message: { content: 'OK' } }],
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          );
+        }
+      }
+      return new Response(
+        JSON.stringify({ error: { message: 'The model does not exist or you do not have access to it.' } }),
+        { status: 404, headers: { 'Content-Type': 'application/json' } }
+      );
+    };
+
+    const probeResult = await findWorkingModel(
+      {
+        provider: 'groq',
+        model: 'llama-3.3-70b-versatile',
+        apiKey: 'gsk_test_mock_key_123456',
+      },
+      undefined,
+      mockFetch
+    );
+
+    assert.equal(probeResult.ok, true);
+    assert.equal(probeResult.model, 'openai/gpt-oss-120b');
+    assert.deepEqual(seenChatModels, ['openai/gpt-oss-120b']);
+
+    // Verify all-404 fallback surfaces actionable Groq Console model permission tip
+    const restrictedFetch: typeof fetch = async () =>
+      new Response(
+        JSON.stringify({
+          error: {
+            message: 'The model `llama-3.3-70b-versatile` does not exist or you do not have access to it.',
+          },
+        }),
+        { status: 404, headers: { 'Content-Type': 'application/json' } }
+      );
+
+    const restrictedResult = await findWorkingModel(
+      {
+        provider: 'groq',
+        model: 'llama-3.3-70b-versatile',
+        apiKey: 'gsk_test_restricted_123',
+      },
+      undefined,
+      restrictedFetch
+    );
+    assert.equal(restrictedResult.ok, false);
+    assert.match(restrictedResult.error || '', /Limits\/Model Permissions/);
+    assert.doesNotMatch(restrictedResult.error || '', /qwen-qwq-32b/);
+  });
+
+  it('discovers active OpenRouter free router/models and filters OpenAI non-chat + reasoning params', async () => {
+    const seenOpenRouterModels: string[] = [];
+    let seenOpenRouterTitle = '';
+    const openRouterFetch: typeof fetch = async (input, init) => {
+      const url = String(input);
+      const headers = (init?.headers || {}) as Record<string, string>;
+      if (url === 'https://openrouter.ai/api/v1/models') {
+        return new Response(
+          JSON.stringify({
+            data: [
+              { id: 'google/gemma-3-27b-it', pricing: { prompt: '0.0001', completion: '0.0002' } },
+              { id: 'openrouter/free', pricing: { prompt: '0', completion: '0' } },
+              { id: 'qwen/qwen3-coder:free', pricing: { prompt: '0', completion: '0' } },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      if (url === 'https://openrouter.ai/api/v1/chat/completions') {
+        seenOpenRouterTitle = headers['X-Title'] || '';
+        const body = JSON.parse(String(init?.body || '{}')) as { model?: string };
+        seenOpenRouterModels.push(String(body.model || ''));
+        if (body.model === 'openrouter/free') {
+          return new Response(
+            JSON.stringify({ choices: [{ message: { content: 'OK' } }] }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          );
+        }
+      }
+      return new Response(
+        JSON.stringify({ error: { message: 'This model is unavailable for free.' } }),
+        { status: 404, headers: { 'Content-Type': 'application/json' } }
+      );
+    };
+
+    const orResult = await findWorkingModel(
+      {
+        provider: 'openrouter',
+        model: 'google/gemma-3-27b-it:free',
+        apiKey: 'sk-or-v1-test_key_123456',
+      },
+      undefined,
+      openRouterFetch
+    );
+    assert.equal(orResult.ok, true);
+    assert.equal(orResult.model, 'openrouter/free');
+    assert.equal(seenOpenRouterTitle, 'SkillLoom');
+    assert.deepEqual(seenOpenRouterModels, ['openrouter/free']);
+
+    // Verify OpenAI discovery filters non-chat models & sends max_completion_tokens on gpt-5-mini
+    const seenOpenAiPayloads: Array<Record<string, unknown>> = [];
+    const openAiFetch: typeof fetch = async (input, init) => {
+      const url = String(input);
+      if (url === 'https://api.openai.com/v1/models') {
+        return new Response(
+          JSON.stringify({
+            data: [
+              { id: 'babbage-002' },
+              { id: 'whisper-1' },
+              { id: 'text-embedding-3-small' },
+              { id: 'gpt-4o-realtime-preview' },
+              { id: 'gpt-5-mini' },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      if (url === 'https://api.openai.com/v1/chat/completions') {
+        const body = JSON.parse(String(init?.body || '{}')) as Record<string, unknown>;
+        seenOpenAiPayloads.push(body);
+        if (body.model === 'gpt-5-mini') {
+          assert.equal('max_tokens' in body, false);
+          assert.equal(body.max_completion_tokens, 16);
+          return new Response(
+            JSON.stringify({ choices: [{ message: { content: 'OK' } }] }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          );
+        }
+      }
+      return new Response(JSON.stringify({ error: { message: 'Not found' } }), { status: 404 });
+    };
+
+    const oaiResult = await findWorkingModel(
+      {
+        provider: 'openai',
+        model: 'gpt-4o-mini',
+        apiKey: 'sk-proj-test_openai_key',
+      },
+      undefined,
+      openAiFetch
+    );
+    assert.equal(oaiResult.ok, true);
+    assert.equal(oaiResult.model, 'gpt-5-mini');
+    assert.equal(seenOpenAiPayloads.length, 1);
+  });
+
+  it('restores dropped Added context and Source and limitations sections after LLM distillation so Quality Gate never blocks install', async () => {
+    const basePkg = buildBrowserSkillPackage({
+      videoId: 'groqSecFix1',
+      title: 'Docker Compose Local Stack Guide',
+      channelName: 'InfraOps',
+      pageUrl: 'https://www.youtube.com/watch?v=groqSecFix1',
+      description: 'Run `docker compose up -d` and verify with `docker compose ps`.',
+      transcriptSegments: [
+        { startSeconds: 15, timestampLabel: '00:15', text: 'Create `compose.yaml` with `postgres:16-alpine` service.' },
+        { startSeconds: 45, timestampLabel: '00:45', text: 'Run `docker compose up -d` to launch services in background.' },
+        { startSeconds: 75, timestampLabel: '01:15', text: 'Run `docker compose ps` to confirm healthy containers.' },
+        { startSeconds: 105, timestampLabel: '01:45', text: 'Inspect `docker compose logs -f api` if ports collide.' },
+      ],
+    });
+
+    const groqPartialOutput = [
+      '---',
+      'name: docker-compose-local-stack-guide',
+      'description: "Configure and run Docker Compose local stacks. Use when launching multi-container dev services. Do not use for Kubernetes clusters."',
+      '---',
+      '',
+      '# Docker Compose Local Stack Guide',
+      '',
+      '## When to use',
+      '- Use when spinning up multi-container local stacks with Docker Compose. `[From video]`',
+      '',
+      '## Prerequisites',
+      '- Docker Engine and Compose v2 installed. `[Added — not from video]`',
+      '',
+      '## Steps',
+      '1. Create `compose.yaml` using `postgres:16-alpine`. `[00:15]` `[From video — 00:15]`',
+      '2. Run `docker compose up -d` to start background services. `[00:45]` `[From video — 00:45]`',
+      '3. Run `docker compose ps` to verify healthy containers. `[01:15]` `[From video — 01:15]`',
+      '4. Run `docker compose logs -f api` on port binding errors. `[01:45]` `[From video — 01:45]`',
+      '',
+      '## Verify it worked',
+      '- Run `docker compose ps` and confirm containers report `running`. `[From video — 01:15]`',
+      '',
+      '## Common mistakes / troubleshooting',
+      '- Leaving stale volumes behind without `docker compose down -v`. `[Added — not from video]`',
+    ].join('\n');
+
+    const distilled = await distillSkillWithAiEngine(
+      basePkg,
+      {
+        provider: 'groq',
+        model: 'openai/gpt-oss-120b',
+        apiKey: 'gsk_test_key_sections_123',
+      },
+      (async (input) => {
+        const url = String(input);
+        if (url === 'https://api.groq.com/openai/v1/models') {
+          return new Response(
+            JSON.stringify({ data: [{ id: 'openai/gpt-oss-120b', active: true }] }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          );
+        }
+        return new Response(
+          JSON.stringify({ choices: [{ message: { content: groqPartialOutput } }] }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }) as typeof fetch
+    );
+
+    assert.equal(distilled.pkg.qualityReport.structuralPassed, true);
+    assert.notEqual(distilled.pkg.qualityReport.grade, 'BLOCKED');
+    const finalMd = distilled.pkg.files[0].content;
+    assert.match(finalMd, /^## Added context \(not from the video\)/m);
+    assert.match(finalMd, /^## Source and limitations/m);
+    assert.match(finalMd, /groqSecFix1/);
+  });
+
+  it('extracts X/Twitter threads & links and compiles audited Study & Revision NOTES.md packages', async () => {
+    const parsedUrl = parseTwitterPostUrl('https://x.com/netsec_lab/status/189900112233445566');
+    assert.equal(parsedUrl?.kind, 'status');
+    assert.equal(parsedUrl?.username, '@netsec_lab');
+
+    const makeAnchor = (href: string, textContent: string) => ({
+      getAttribute: (k: string) => (k === 'href' ? href : null),
+      textContent,
+    });
+
+    const makeArticle = (handle: string, postLines: string[], anchors: ReturnType<typeof makeAnchor>[] = []) => {
+      const textNodes = postLines.map((line) => ({ textContent: line }));
+      const userNameNode = {
+        textContent: `Security Lab ${handle}`,
+        querySelectorAll: () => [makeAnchor(`/${handle.replace(/^@/, '')}`, handle)],
+      };
+      return {
+        tagName: 'ARTICLE',
+        querySelector: (sel: string) => (sel === '[data-testid="User-Name"]' ? userNameNode : null),
+        querySelectorAll: (sel: string) => {
+          if (sel.includes('tweetText')) return textNodes;
+          if (sel === 'a[href]') return anchors;
+          return [];
+        },
+        getBoundingClientRect: () => ({ top: 100, height: 300 }),
+      };
+    };
+
+    const opPost1 = makeArticle(
+      '@netsec_lab',
+      [
+        'TLS 1.3 handshake deep-dive thread for exam & lab revision.',
+        'Step 1: ClientHello sends `key_share` + supported ciphers immediately (1-RTT).',
+      ],
+      [
+        makeAnchor('/netsec_lab/status/189900112233445566', '1h'),
+        makeAnchor('https://t.co/short123', 'datatracker.ietf.org/doc/html/rfc8446'),
+      ]
+    );
+    const opPost2 = makeArticle('@netsec_lab', [
+      'Avoid downgrading to RSA static key exchange — TLS 1.3 enforces ECDHE forward secrecy.',
+    ]);
+    const otherReply = makeArticle('@learner_dev', [
+      'Great tip! Also remember 0-RTT early data is replayable.',
+    ]);
+
+    const fakeDoc = {
+      title: 'Security Lab on X: "TLS 1.3 handshake"',
+      querySelector: () => null,
+      querySelectorAll: (sel: string) => {
+        if (sel.includes('article[data-testid="tweet"]')) return [opPost1, opPost2, otherReply];
+        if (sel === 'video') return [];
+        return [];
+      },
+      defaultView: { innerHeight: 900 },
+    } as unknown as Document;
+
+    const extracted = extractVisibleTwitterContext(fakeDoc, {
+      href: 'https://x.com/netsec_lab/status/189900112233445566',
+    } as Location);
+
+    assert.ok(extracted);
+    assert.equal(extracted.sourcePlatform, 'twitter');
+    assert.equal(extracted.channelName, '@netsec_lab');
+    assert.equal(extracted.videoId, 'x-189900112233445566');
+    assert.equal(extracted.transcriptSegments.length, 3);
+    assert.equal(
+      extracted.labeledLinks?.some((l) => l.url === 'https://datatracker.ietf.org/doc/html/rfc8446'),
+      true
+    );
+    assert.match(extracted.pinnedComment?.text || '', /0-RTT early data/);
+
+    const studyPkg = buildBrowserSkillPackage({
+      ...extracted,
+      outputMode: 'study',
+    });
+    assert.equal(studyPkg.outputMode, 'study');
+    assert.equal(studyPkg.primaryFilename, 'NOTES.md');
+    assert.equal(studyPkg.zipFilename.endsWith('-study-notes-v2.1.0.zip'), true);
+    assert.equal(studyPkg.qualityReport.structuralPassed, true);
+
+    const notesMd = studyPkg.files[0].content;
+    assert.match(notesMd, /^type: study-notes$/m);
+    assert.match(notesMd, /^## Big Picture & Learning Objectives$/m);
+    assert.match(notesMd, /^## Key Concepts & Definitions$/m);
+    assert.match(notesMd, /^## Core Notes & Walkthrough$/m);
+    assert.match(notesMd, /^## Worked Examples & Takeaways$/m);
+    assert.match(notesMd, /^## Active Recall Questions$/m);
+    assert.match(notesMd, /^## Exam Traps & Common Mistakes$/m);
+    assert.match(notesMd, /^## Source & Further Review$/m);
+
+    // Verify AI distillation in study mode heals missing trailing study sections & keeps NOTES.md
+    const partialAiNotes = [
+      '---',
+      `name: ${studyPkg.slug}`,
+      'type: study-notes',
+      'description: "Study and revision notes for TLS 1.3 1-RTT handshake, ECDHE forward secrecy, and 0-RTT tradeoffs."',
+      '---',
+      '',
+      '# Study Notes: TLS 1.3 Handshake Revision',
+      '',
+      '## Big Picture & Learning Objectives',
+      '- Master TLS 1.3 1-RTT key exchange and forward secrecy. `[From post]`',
+      '',
+      '## Key Concepts & Definitions',
+      '- `key_share`: Ephemeral ECDHE public key sent in initial `ClientHello`. `[From post]`',
+      '',
+      '## Core Notes & Walkthrough',
+      '1. Send `ClientHello` with supported groups and `key_share` in 1-RTT. `[00:00]` `[From post]`',
+      '2. Enforce ephemeral ECDHE rather than static RSA key transport. `[00:10]` `[From post]`',
+      '',
+      '## Worked Examples & Takeaways',
+      '- Spec reference: `https://datatracker.ietf.org/doc/html/rfc8446`. `[From post]`',
+      '',
+      '## Active Recall Questions',
+      '1. **Q: Why does TLS 1.3 send `key_share` inside `ClientHello`?**',
+      '   **Answer:** To negotiate ECDHE parameters in 1-RTT without an extra round trip.',
+      '2. **Q: What security property did TLS 1.3 mandate by removing static RSA key exchange?**',
+      '   **Answer:** Forward secrecy via ephemeral ECDHE.',
+    ].join('\n');
+
+    const distilledStudy = await distillSkillWithAiEngine(
+      studyPkg,
+      {
+        provider: 'groq',
+        model: 'openai/gpt-oss-120b',
+        apiKey: 'gsk_study_mock_123',
+      },
+      (async (input) => {
+        if (String(input).endsWith('/models')) {
+          return new Response(
+            JSON.stringify({ data: [{ id: 'openai/gpt-oss-120b', active: true }] }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          );
+        }
+        return new Response(
+          JSON.stringify({ choices: [{ message: { content: partialAiNotes } }] }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }) as typeof fetch
+    );
+
+    assert.equal(distilledStudy.pkg.files[0].relativePath, 'NOTES.md');
+    assert.equal(distilledStudy.pkg.qualityReport.structuralPassed, true);
+    assert.match(distilledStudy.pkg.files[0].content, /^## Exam Traps & Common Mistakes$/m);
+    assert.match(distilledStudy.pkg.files[0].content, /^## Source & Further Review$/m);
   });
 });

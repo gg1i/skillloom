@@ -72,6 +72,8 @@ export interface DistilledStage {
 
 export type CoverageLevel = 'RICH' | 'MODERATE' | 'VISUAL_HEAVY_NEEDS_FRAMES';
 export type SourceSizeMode = 'long' | 'medium' | 'short' | 'reel';
+export type SkillOutputMode = 'agent' | 'study';
+export type SkillSourcePlatform = 'youtube' | 'instagram' | 'twitter';
 
 // --- Security Sanitization (Preserved & Hardened) ---
 
@@ -1331,19 +1333,24 @@ export function detectVisualBlindspots(sentences: TimedSentence[]): VisualBlinds
 // --- Source Size & Coverage Classification ---
 
 export function classifySourceSize(
-  platform: 'youtube' | 'instagram',
+  platform: SkillSourcePlatform,
   durationSeconds: number,
   chapterCount: number,
   segmentCount: number
 ): SourceSizeMode {
   if (platform === 'instagram') return 'reel';
+  if (platform === 'twitter') {
+    if (durationSeconds >= 720 || segmentCount >= 35) return 'long';
+    if (durationSeconds > 180 || segmentCount >= 8) return 'medium';
+    return 'short';
+  }
   if (durationSeconds >= 720 || chapterCount >= 6 || segmentCount >= 120) return 'long';
   if (durationSeconds > 240 || segmentCount >= 28) return 'medium';
   return 'short';
 }
 
 export function computeCoverageLevel(params: {
-  platform: 'youtube' | 'instagram';
+  platform: SkillSourcePlatform;
   segmentCount: number;
   stageStepCount: number;
   captionActionCount: number;
@@ -1373,6 +1380,16 @@ export function computeCoverageLevel(params: {
     return 'VISUAL_HEAVY_NEEDS_FRAMES';
   }
 
+  if (platform === 'twitter') {
+    if (segmentCount >= 6 && (stageStepCount >= 3 || artifactCount >= 1)) {
+      return 'RICH';
+    }
+    if (segmentCount >= 1 || captionActionCount >= 1 || artifactCount >= 1 || hasAudio || frameCount >= 1) {
+      return 'MODERATE';
+    }
+    return 'VISUAL_HEAVY_NEEDS_FRAMES';
+  }
+
   if (segmentCount === 0) {
     return captionActionCount >= 2 && frameCount >= 2 ? 'MODERATE' : 'VISUAL_HEAVY_NEEDS_FRAMES';
   }
@@ -1388,7 +1405,7 @@ export function computeCoverageLevel(params: {
 // --- Master Distillation Entrypoint ---
 
 export interface DistilledVideoInput {
-  sourcePlatform?: 'youtube' | 'instagram';
+  sourcePlatform?: SkillSourcePlatform;
   videoId: string;
   title: string;
   channelName: string;
@@ -1404,7 +1421,7 @@ export interface DistilledVideoInput {
 }
 
 export interface DistilledVideoAnalysis {
-  platform: 'youtube' | 'instagram';
+  platform: SkillSourcePlatform;
   sizeMode: SourceSizeMode;
   cleanTitle: string;
   rawTitle: string;
@@ -1430,10 +1447,21 @@ export interface DistilledVideoAnalysis {
 }
 
 export function distillVideoSource(input: DistilledVideoInput): DistilledVideoAnalysis {
-  const platform: 'youtube' | 'instagram' = input.sourcePlatform === 'instagram' ? 'instagram' : 'youtube';
+  const platform: SkillSourcePlatform =
+    input.sourcePlatform === 'instagram'
+      ? 'instagram'
+      : input.sourcePlatform === 'twitter'
+        ? 'twitter'
+        : 'youtube';
 
+  const fallbackChannel =
+    platform === 'instagram'
+      ? '@instagram-creator'
+      : platform === 'twitter'
+        ? '@x-creator'
+        : 'Unknown Creator';
   const titleSan = sanitizeUntrustedText(input.title || '');
-  const channelSan = sanitizeUntrustedText(input.channelName || (platform === 'instagram' ? '@instagram-creator' : 'Unknown Creator'));
+  const channelSan = sanitizeUntrustedText(input.channelName || fallbackChannel);
   const descSan = sanitizeUntrustedText(input.description || '');
   const pinnedSan = sanitizeUntrustedText(input.pinnedComment?.text || '');
 
@@ -1474,7 +1502,7 @@ export function distillVideoSource(input: DistilledVideoInput): DistilledVideoAn
     cleanDescription,
     cleanPinnedText,
     sentences,
-    platform === 'instagram'
+    platform === 'instagram' || platform === 'twitter'
   );
   const pitfalls = extractPitfallsAndGotchas(sentences, cleanPinnedText, cleanDescription);
   const blindspots = detectVisualBlindspots(sentences);

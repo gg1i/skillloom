@@ -16,12 +16,17 @@ import {
   type DirectoryHandleLike,
   ensureReadWritePermission,
   installSkillPackageToDirectoryHandle,
-  loadSavedSkillsRepoHandle,
-  pickAndSaveSkillsRepoHandle,
+  loadSavedDirHandle,
+  pickAndSaveDirHandle,
 } from '../lib/repo-installer';
+import type { SkillOutputMode } from '../lib/skill-distiller';
 
 const MAX_STUDIO_FRAMES = 12;
+const OUTPUT_MODE_STORAGE_KEY = 'skillloomOutputMode';
 
+const studioModeAgentBtn = document.getElementById('studio-mode-agent-btn') as HTMLButtonElement | null;
+const studioModeStudyBtn = document.getElementById('studio-mode-study-btn') as HTMLButtonElement | null;
+const studioInstallHeadingEl = document.getElementById('studio-install-heading');
 const titleEl = document.getElementById('video-title');
 const metaEl = document.getElementById('video-meta');
 const slugInputEl = document.getElementById('slug-input') as HTMLInputElement | null;
@@ -53,10 +58,14 @@ const uploadFrameInputEl = document.getElementById('upload-frame-input') as HTML
 
 let currentVideo: BrowserVideoInput | null = null;
 let generatedPkg: BrowserGeneratedSkillPackage | null = null;
+let activeOutputMode: SkillOutputMode = 'agent';
 let activeTabPath = 'SKILL.md';
 let refinedSkillOverride: string | null = null;
 let aiController: AiSettingsController | null = null;
-let savedRepoHandle: DirectoryHandleLike | null = null;
+let savedDirHandles: Record<SkillOutputMode, DirectoryHandleLike | null> = {
+  agent: null,
+  study: null,
+};
 
 function setStatus(msg: string, tone: boolean | 'neutral' | 'error' | 'busy' = false): void {
   if (!statusEl) return;
@@ -105,7 +114,7 @@ function downloadBlobFile(filename: string, data: Uint8Array | string, mime: str
 
 function rebuildPackage(preserveRefined = false): void {
   if (!currentVideo) return;
-  generatedPkg = buildBrowserSkillPackage(currentVideo);
+  generatedPkg = buildBrowserSkillPackage({ ...currentVideo, outputMode: activeOutputMode });
   if (preserveRefined && refinedSkillOverride) {
     generatedPkg = applyRefinedSkillMarkdown(generatedPkg, refinedSkillOverride);
   } else {
@@ -116,7 +125,12 @@ function rebuildPackage(preserveRefined = false): void {
     titleEl.textContent = generatedPkg.title;
   }
   if (metaEl) {
-    const platformLabel = currentVideo.sourcePlatform === 'instagram' ? 'Instagram Reel' : 'YouTube';
+    const platformLabel =
+      currentVideo.sourcePlatform === 'instagram'
+        ? 'Instagram Reel'
+        : currentVideo.sourcePlatform === 'twitter'
+          ? 'X / Twitter'
+          : 'YouTube';
     const toolsStr =
       generatedPkg.detectedTools.length > 0 ? generatedPkg.detectedTools.join(', ') : generatedPkg.domain;
     metaEl.textContent = `${platformLabel} · ${currentVideo.channelName} · ${generatedPkg.domain} · ${toolsStr}`;
@@ -293,7 +307,11 @@ async function runAiDistillOnActivePackage(cfg: AiEngineConfig, force = false): 
     try {
       const sheets = await buildStoryboardContactSheets(document, currentVideo.capturedFrames!, 3, 2);
       if (sheets.length > 0) {
-        generatedPkg = buildBrowserSkillPackage({ ...currentVideo, aiVisionSheets: sheets });
+        generatedPkg = buildBrowserSkillPackage({
+          ...currentVideo,
+          outputMode: activeOutputMode,
+          aiVisionSheets: sheets,
+        });
       }
     } catch {
       // Proceed cleanly with individual frames
@@ -301,7 +319,7 @@ async function runAiDistillOnActivePackage(cfg: AiEngineConfig, force = false): 
   }
 
   const preset = AI_PROVIDER_PRESETS[cfg.provider];
-  setStatus(`Distilling real SKILL.md via ${preset.label}...`, 'busy');
+  setStatus(`Distilling ${generatedPkg.primaryFilename} via ${preset.label}...`, 'busy');
   const permOk = await requestProviderPermission(cfg.provider);
   if (!permOk) {
     setStatus(`Origin permission declined for ${preset.label}; keeping deterministic draft.`, true);
@@ -318,11 +336,11 @@ async function runAiDistillOnActivePackage(cfg: AiEngineConfig, force = false): 
       }
       refinedSkillOverride = out.pkg.files[0]?.content || null;
       generatedPkg = out.pkg;
-      activeTabPath = 'SKILL.md';
+      activeTabPath = out.pkg.primaryFilename;
       renderQualityPanel();
       renderPreviewTabs();
       renderActivePreview();
-      setStatus(out.note || `Distilled SKILL.md cleanly via ${preset.label}!`);
+      setStatus(out.note || `Distilled ${out.pkg.primaryFilename} cleanly via ${preset.label}!`);
       return true;
     }
     return false;
@@ -335,17 +353,41 @@ async function runAiDistillOnActivePackage(cfg: AiEngineConfig, force = false): 
   }
 }
 
-function updateRepoUi(handle: DirectoryHandleLike | null): void {
-  savedRepoHandle = handle;
+function getActiveSavedHandle(): DirectoryHandleLike | null {
+  return savedDirHandles[activeOutputMode];
+}
+
+function applyStudioModeUi(): void {
+  const isStudy = activeOutputMode === 'study';
+  const handle = getActiveSavedHandle();
+  if (studioModeAgentBtn) {
+    studioModeAgentBtn.className = !isStudy ? 'tab-btn active' : 'tab-btn';
+    studioModeAgentBtn.setAttribute('aria-selected', !isStudy ? 'true' : 'false');
+  }
+  if (studioModeStudyBtn) {
+    studioModeStudyBtn.className = isStudy ? 'tab-btn active' : 'tab-btn';
+    studioModeStudyBtn.setAttribute('aria-selected', isStudy ? 'true' : 'false');
+  }
+  if (studioInstallHeadingEl) {
+    studioInstallHeadingEl.textContent = isStudy ? 'Save to Study Vault' : 'Install to Agent';
+  }
   if (repoStatusLabelEl) {
-    repoStatusLabelEl.textContent = handle ? `Repo: ${handle.name}/ ✓` : 'Repo: Not chosen yet';
+    const prefix = isStudy ? 'Vault' : 'Repo';
+    repoStatusLabelEl.textContent = handle ? `${prefix}: ${handle.name}/ ✓` : `${prefix}: Not chosen yet`;
     repoStatusLabelEl.style.color = handle ? '#5eead4' : '#94a3b8';
   }
   if (installRepoBtn) {
     installRepoBtn.textContent = handle
-      ? `Install Skill to ${handle.name}/`
-      : 'Choose Repo & Install Skill';
+      ? isStudy
+        ? `Save Study Notes to ${handle.name}/`
+        : `Install Skill to ${handle.name}/`
+      : isStudy
+        ? 'Choose Study Vault & Save'
+        : 'Choose Repo & Install Skill';
   }
+  if (copyBtn) copyBtn.textContent = isStudy ? 'Plan B: Copy Study Prompt' : 'Plan B: Copy Prompt';
+  if (downloadMdBtn) downloadMdBtn.textContent = isStudy ? 'Download Single NOTES.md' : 'Download Single SKILL.md';
+  if (refineBtn) refineBtn.textContent = isStudy ? 'Distill NOTES.md Now' : 'Distill SKILL.md Now';
 }
 
 async function initHandoff(): Promise<void> {
@@ -354,26 +396,40 @@ async function initHandoff(): Promise<void> {
     onStatus: (msg, isError) => setStatus(msg, Boolean(isError)),
   });
   updateStudioAiBadge(aiController.getConfig());
-  updateRepoUi(await loadSavedSkillsRepoHandle());
+  const [agentHandle, studyHandle] = await Promise.all([
+    loadSavedDirHandle('agent'),
+    loadSavedDirHandle('study'),
+  ]);
+  savedDirHandles = { agent: agentHandle, study: studyHandle };
+  applyStudioModeUi();
 
   const chromeApi = (globalThis as {
     chrome?: {
       storage?: {
         local: {
           get: (
-            key: string,
-            cb: (res: { pendingAgentBundle?: BrowserVideoInput }) => void
+            key: string | string[],
+            cb: (res: {
+              pendingAgentBundle?: BrowserVideoInput;
+              skillloomOutputMode?: SkillOutputMode;
+            }) => void
           ) => void;
+          set?: (items: Record<string, unknown>, cb?: () => void) => void;
         };
       };
     };
   }).chrome;
 
-  chromeApi?.storage?.local.get('pendingAgentBundle', (res) => {
+  chromeApi?.storage?.local.get(['pendingAgentBundle', OUTPUT_MODE_STORAGE_KEY], (res) => {
     const video = res?.pendingAgentBundle;
+    const storedMode =
+      video?.outputMode || (res?.skillloomOutputMode === 'study' ? 'study' : 'agent');
+    activeOutputMode = storedMode;
+    applyStudioModeUi();
+
     if (!video) {
-      if (titleEl) titleEl.textContent = 'No tutorial capture loaded';
-      if (metaEl) metaEl.textContent = 'Open a YouTube tutorial or Instagram Reel and click "Open Skill Studio" in SkillLoom.';
+      if (titleEl) titleEl.textContent = 'No capture loaded';
+      if (metaEl) metaEl.textContent = 'Open YouTube, an Instagram Reel, or X / Twitter and click "Open Studio" in SkillLoom.';
       if (previewEl) previewEl.textContent = '';
       setStatus('No active capture found.', true);
       return;
@@ -394,36 +450,52 @@ async function initHandoff(): Promise<void> {
     const urlAction = new URLSearchParams(window.location.search).get('action');
     if (generatedPkg) {
       const isIg = currentVideo.sourcePlatform === 'instagram';
+      const activeHandle = getActiveSavedHandle();
       if (urlAction === 'chooseRepo') {
-        setStatus('Click "Choose Folder..." or "Choose Repo & Install Skill" above to set your permanent Skills folder (Plan A), or use Plan B: Copy Prompt.');
+        setStatus('Click "Choose Folder..." above to set your permanent folder once (Plan A), or use Plan B: Copy Prompt.');
       } else if (urlAction === 'installRepo') {
         setStatus(
-          savedRepoHandle
-            ? `Click "Install Skill to ${savedRepoHandle.name}/" to confirm folder access & install automatically.`
-            : 'Click "Choose Repo & Install Skill" to pick your Skills folder.'
+          activeHandle
+            ? `Click the primary save button to confirm access to ${activeHandle.name}/.`
+            : 'Click "Choose Folder..." above to pick your destination folder.'
         );
       } else if (generatedPkg.captionCount === 0 && generatedPkg.coverageLevel === 'VISUAL_HEAVY_NEEDS_FRAMES') {
         setStatus(
           isIg
             ? '0 spoken captions exposed in Reel DOM — review attached keyframe(s) & caption, snap extra beats in popup if needed, or run AI Vision.'
-            : '0 captions captured — open YouTube "Show transcript" or snap key frames for richer workflow synthesis.',
+            : '0 captions captured — open transcript or snap key frames for richer synthesis.',
           !isIg
         );
       } else if (generatedPkg.captionCount === 0 && isIg) {
         setStatus(
-          `Synthesized Reel from caption, comments & ${generatedPkg.capturedFrameCount} frame(s). Plan A installs directly to your Skills Repo!`
+          `Synthesized Reel from caption, comments & ${generatedPkg.capturedFrameCount} frame(s). Plan A saves straight to your folder!`
         );
       } else if (generatedPkg.coverageLevel === 'VISUAL_HEAVY_NEEDS_FRAMES') {
         setStatus(
-          `${generatedPkg.captionCount} captions captured, but speaker references ${generatedPkg.blindspotCount} visual moments — consider snapping key frames!`
+          `${generatedPkg.captionCount} lines captured, but speaker references ${generatedPkg.blindspotCount} visual moments — consider snapping key frames!`
         );
       } else {
         setStatus(
-          `Ready: ${generatedPkg.files.length - 1} skill files. Plan A installs directly into your Skills Repo; Plan B copies prompt for AI chat.`
+          `Ready (${activeOutputMode === 'study' ? 'Study Notes' : 'Agent Skill'}): ${generatedPkg.files.length} files.`
         );
       }
     }
   });
+
+  const switchStudioMode = (nextMode: SkillOutputMode) => {
+    if (activeOutputMode === nextMode) return;
+    activeOutputMode = nextMode;
+    chromeApi?.storage?.local.set?.({ [OUTPUT_MODE_STORAGE_KEY]: nextMode });
+    applyStudioModeUi();
+    rebuildPackage(false);
+    setStatus(
+      nextMode === 'study'
+        ? 'Switched to Study / Revision Notes (NOTES.md with Active Recall quiz).'
+        : 'Switched to Agent Skill mode (7-section SKILL.md).'
+    );
+  };
+  studioModeAgentBtn?.addEventListener('click', () => switchStudioMode('agent'));
+  studioModeStudyBtn?.addEventListener('click', () => switchStudioMode('study'));
 
   slugInputEl?.addEventListener('input', () => {
     if (!currentVideo) return;
@@ -432,28 +504,30 @@ async function initHandoff(): Promise<void> {
   });
 
   chooseRepoBtn?.addEventListener('click', async () => {
-    const picked = await pickAndSaveSkillsRepoHandle();
+    const picked = await pickAndSaveDirHandle(activeOutputMode);
     if (!picked.ok || !picked.handle) {
       setStatus(picked.error || 'Could not select folder.', true);
       return;
     }
-    updateRepoUi(picked.handle);
-    setStatus(`Saved "${picked.handle.name}/" as your permanent Skills Repo! Future captures install here cleanly.`);
+    savedDirHandles[activeOutputMode] = picked.handle;
+    applyStudioModeUi();
+    setStatus(`Saved "${picked.handle.name}/" as your permanent ${activeOutputMode === 'study' ? 'Study Vault' : 'Skills Repo'}!`);
   });
 
   installRepoBtn?.addEventListener('click', async () => {
     if (!generatedPkg || !installRepoBtn) return;
     installRepoBtn.disabled = true;
     try {
-      let targetHandle = savedRepoHandle;
+      let targetHandle = getActiveSavedHandle();
       if (!targetHandle) {
-        const picked = await pickAndSaveSkillsRepoHandle();
+        const picked = await pickAndSaveDirHandle(activeOutputMode);
         if (!picked.ok || !picked.handle) {
-          setStatus(picked.error || 'Pick a Skills folder first, or use Plan B: Copy Prompt.', true);
+          setStatus(picked.error || 'Pick a destination folder first, or use Plan B: Copy Prompt.', true);
           return;
         }
         targetHandle = picked.handle;
-        updateRepoUi(targetHandle);
+        savedDirHandles[activeOutputMode] = targetHandle;
+        applyStudioModeUi();
       }
 
       const permOk = await ensureReadWritePermission(targetHandle);
@@ -472,10 +546,10 @@ async function initHandoff(): Promise<void> {
         );
         return;
       }
-      setStatus(`Writing skill package to ${targetHandle.name}/...`, 'busy');
+      setStatus(`Writing ${generatedPkg.primaryFilename} package to ${targetHandle.name}/...`, 'busy');
       const installed = await installSkillPackageToDirectoryHandle(generatedPkg, targetHandle);
       setStatus(
-        `Installed ${installed.fileCount} files (${generatedPkg.qualityReport.score}/100 · ${generatedPkg.qualityReport.grade}) into ${installed.installedPath}!`
+        `Saved ${installed.fileCount} files (${generatedPkg.qualityReport.score}/100 · ${generatedPkg.qualityReport.grade}) into ${installed.installedPath}!`
       );
     } catch (err: unknown) {
       setStatus(
@@ -545,12 +619,13 @@ async function initHandoff(): Promise<void> {
     if (aiController) {
       await runAiDistillOnActivePackage(aiController.getConfig(), false);
     }
+    const mdName = `${generatedPkg.slug}-${generatedPkg.primaryFilename}`;
     downloadBlobFile(
-      `${generatedPkg.slug}-SKILL.md`,
+      mdName,
       generatedPkg.files[0]?.content || '',
       'text/markdown;charset=utf-8'
     );
-    setStatus(`Downloaded ${generatedPkg.slug}-SKILL.md.`);
+    setStatus(`Downloaded ${mdName}.`);
   });
 
   const appendImageFilesToFrames = async (files: File[]) => {

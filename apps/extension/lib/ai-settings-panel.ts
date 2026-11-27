@@ -8,6 +8,7 @@ import {
   loadAiConfig,
   probeGeminiAvailableModels,
   probeOllamaLocalModels,
+  probeOpenAiCompatibleModels,
   requestProviderPermission,
   saveAiConfig,
 } from './ai-engine';
@@ -429,37 +430,49 @@ export async function mountAiSettingsPanel(
     modelInput.placeholder = preset.defaultModel || 'Model ID';
     renderQuickHelp(quickHint, id);
 
-    if (id === 'ollama') {
-      void probeOllamaLocalModels(endpointInput.value || preset.defaultEndpoint).then((models) => {
-        modelList.replaceChildren();
-        for (const m of models) {
-          const opt = document.createElement('option');
-          opt.value = m;
-          modelList.appendChild(opt);
-        }
-        if (models.length > 0 && (!modelInput.value || modelInput.value === preset.defaultModel)) {
-          modelInput.value = models[0];
-        }
-      });
-    } else if (id === 'gemini') {
-      const defaults = [
+    const setModelOptions = (models: string[]) => {
+      modelList.replaceChildren();
+      for (const m of models) {
+        const opt = document.createElement('option');
+        opt.value = m;
+        modelList.appendChild(opt);
+      }
+    };
+
+    const defaultSuggestions: Partial<Record<AiProviderId, string[]>> = {
+      gemini: [
         'gemini-flash-latest',
         'gemini-4-hydrogen',
         'gemini-3.6-flash',
         'gemini-3.5-flash-lite',
-      ];
-      const setGeminiOptions = (models: string[]) => {
-        modelList.replaceChildren();
-        for (const m of models) {
-          const opt = document.createElement('option');
-          opt.value = m;
-          modelList.appendChild(opt);
+      ],
+      groq: [
+        'llama-3.3-70b-versatile',
+        'meta-llama/llama-4-scout-17b-16e-instruct',
+        'openai/gpt-oss-120b',
+        'qwen/qwen3-32b',
+        'llama-3.1-8b-instant',
+      ],
+      openrouter: ['openrouter/free'],
+      openai: ['gpt-4o-mini', 'gpt-4.1-mini', 'gpt-4.1-nano', 'gpt-5-mini', 'gpt-4o'],
+    };
+
+    if (id === 'ollama') {
+      void probeOllamaLocalModels(endpointInput.value || preset.defaultEndpoint).then((models) => {
+        setModelOptions(models);
+        if (models.length > 0 && (!modelInput.value || modelInput.value === preset.defaultModel)) {
+          modelInput.value = models[0];
         }
-      };
-      setGeminiOptions(defaults);
+      });
+    } else if (defaultSuggestions[id]) {
+      setModelOptions(defaultSuggestions[id]!);
       if (keyInput.value.trim()) {
-        void probeGeminiAvailableModels(keyInput.value.trim(), preset.defaultEndpoint).then((live) => {
-          if (live.length > 0) setGeminiOptions(live);
+        const probeFn =
+          id === 'gemini'
+            ? probeGeminiAvailableModels(keyInput.value.trim(), preset.defaultEndpoint)
+            : probeOpenAiCompatibleModels(keyInput.value.trim(), preset.defaultEndpoint, id);
+        void probeFn.then((live) => {
+          if (live.length > 0) setModelOptions(live);
         });
       }
     }

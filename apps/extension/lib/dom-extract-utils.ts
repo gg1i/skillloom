@@ -1,10 +1,10 @@
 /**
- * Shared pure-browser DOM extraction helpers used by YouTube and Instagram Reels
+ * Shared pure-browser DOM extraction helpers used by YouTube, Instagram Reels, and X / Twitter
  * content scripts (link unwrapping, timestamp formatting, active video selection,
  * and canvas keyframe capture with CORS-taint safety).
  */
 
-export type SourcePlatform = 'youtube' | 'instagram';
+export type SourcePlatform = 'youtube' | 'instagram' | 'twitter';
 
 export interface LabeledReferenceLink {
   label: string;
@@ -78,7 +78,11 @@ export function formatSecondsToTimestamp(totalSeconds: number): string {
 export function unwrapRedirectUrl(rawHref: string, platform: SourcePlatform): string | null {
   try {
     const baseOrigin =
-      platform === 'instagram' ? 'https://www.instagram.com' : 'https://www.youtube.com';
+      platform === 'instagram'
+        ? 'https://www.instagram.com'
+        : platform === 'twitter'
+          ? 'https://x.com'
+          : 'https://www.youtube.com';
     const parsed = new URL(rawHref, baseOrigin);
 
     if (platform === 'youtube' && parsed.pathname === '/redirect') {
@@ -116,6 +120,15 @@ export function unwrapRedirectUrl(rawHref: string, platform: SourcePlatform): st
       return parsed.toString();
     }
 
+    if (platform === 'twitter') {
+      if (
+        /^(?:[a-z0-9-]+\.)?(?:x\.com|twitter\.com|twimg\.com)$/i.test(parsed.hostname)
+      ) {
+        return null;
+      }
+      return stripSocialTrackingParams(parsed.toString());
+    }
+
     if (
       /^(?:[a-z0-9-]+\.)?(?:instagram\.com|facebook\.com|fb\.com|threads\.net|meta\.com)$/i.test(
         parsed.hostname
@@ -132,7 +145,10 @@ export function unwrapRedirectUrl(rawHref: string, platform: SourcePlatform): st
 function stripSocialTrackingParams(rawUrl: string): string {
   try {
     const url = new URL(rawUrl);
-    for (const key of ['fbclid', 'igshid', 'ig_mid', 'utm_source', 'utm_medium']) {
+    for (const key of ['fbclid', 'igshid', 'ig_mid', 'utm_source', 'utm_medium', 's', 't']) {
+      if ((key === 's' || key === 't') && !/^[0-9]{1,3}$|^[A-Za-z0-9_-]{16,}$/.test(url.searchParams.get(key) || '')) {
+        continue;
+      }
       url.searchParams.delete(key);
     }
     return url.toString();
@@ -780,6 +796,121 @@ export function buildFallbackInstagramVideoFromTab(
     pageUrl: parsed.canonicalUrl,
     captionLanguage: 'en',
     description: '',
+    labeledLinks: [],
+    chapters: [],
+    transcriptSegments: [],
+    captionsAccessible: false,
+    isDrmProtected: false,
+  };
+}
+
+export interface ParsedTwitterUrlInfo {
+  kind: 'status' | 'article' | 'feed' | 'other';
+  statusId: string | null;
+  canonicalUrl: string;
+  username: string | null;
+}
+
+const RESERVED_TWITTER_ROUTES = new Set([
+  'home',
+  'explore',
+  'notifications',
+  'messages',
+  'bookmarks',
+  'lists',
+  'i',
+  'search',
+  'settings',
+  'compose',
+]);
+
+/**
+ * Parses X / Twitter URLs (`x.com/<user>/status/<id>`, `twitter.com/...`, home feed, profile).
+ */
+export function parseTwitterPostUrl(rawUrl: string): ParsedTwitterUrlInfo | null {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return null;
+  }
+  if (!/^(?:www\.|mobile\.)?(?:x\.com|twitter\.com)$/i.test(url.hostname)) return null;
+
+  const segments = url.pathname.split('/').filter(Boolean);
+  const first = segments[0] || '';
+  const username =
+    first && !RESERVED_TWITTER_ROUTES.has(first.toLowerCase()) && /^[a-zA-Z0-9_]{1,30}$/.test(first)
+      ? `@${first}`
+      : null;
+
+  const statusMatch = url.pathname.match(/\/([a-zA-Z0-9_]{1,30})\/status(?:es)?\/(\d{5,30})/i);
+  if (statusMatch?.[2]) {
+    const handle = `@${statusMatch[1]}`;
+    const statusId = statusMatch[2];
+    return {
+      kind: 'status',
+      statusId,
+      canonicalUrl: `https://x.com/${statusMatch[1]}/status/${statusId}`,
+      username: handle,
+    };
+  }
+
+  if (segments[0] === 'i' && segments[1] === 'article' && segments[2]) {
+    return {
+      kind: 'article',
+      statusId: segments[2],
+      canonicalUrl: `https://x.com/i/article/${segments[2]}`,
+      username: null,
+    };
+  }
+
+  if (segments[0] === 'home' || segments.length === 0) {
+    return {
+      kind: 'feed',
+      statusId: null,
+      canonicalUrl: url.toString(),
+      username: null,
+    };
+  }
+
+  return {
+    kind: 'other',
+    statusId: null,
+    canonicalUrl: url.toString(),
+    username,
+  };
+}
+
+/**
+ * Builds a minimal X / Twitter context from tab URL + title if DOM extraction is restricted.
+ */
+export function buildFallbackTwitterPostFromTab(
+  tabUrl: string,
+  tabTitle?: string
+): DetectedVideoContext | null {
+  const parsed = parseTwitterPostUrl(tabUrl);
+  if (!parsed) return null;
+
+  const idSuffix = parsed.statusId || 'feed-active';
+  const cleanTabTitle = (tabTitle || '')
+    .replace(/\s*\/\s*X\s*$/i, '')
+    .replace(/\s+on X:\s*/i, ': ')
+    .replace(/^X\s*$/i, '')
+    .trim();
+  const title =
+    cleanTabTitle.length >= 6
+      ? cleanTabTitle.slice(0, 140)
+      : `X Post (${parsed.username || idSuffix})`;
+
+  return {
+    sourcePlatform: 'twitter',
+    videoId: `x-${idSuffix}`,
+    title,
+    channelName: parsed.username || '@x-creator',
+    durationSeconds: 0,
+    pageUrl: parsed.canonicalUrl,
+    captionLanguage: 'en',
+    description: cleanTabTitle,
     labeledLinks: [],
     chapters: [],
     transcriptSegments: [],

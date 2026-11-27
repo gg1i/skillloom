@@ -17,6 +17,7 @@ import {
 } from '../lib/browser-skill-builder';
 import {
   buildFallbackInstagramVideoFromTab,
+  buildFallbackTwitterPostFromTab,
   buildStoryboardContactSheets,
   computeStoryboardTimestamps,
   formatSecondsToTimestamp,
@@ -24,8 +25,9 @@ import {
 import {
   type DirectoryHandleLike,
   installSkillPackageToDirectoryHandle,
-  loadSavedSkillsRepoHandle,
+  loadSavedDirHandle,
 } from '../lib/repo-installer';
+import type { SkillOutputMode } from '../lib/skill-distiller';
 
 type CapturedFrame = NonNullable<BrowserVideoInput['capturedFrames']>[number];
 
@@ -43,8 +45,11 @@ interface ActiveTabVideo extends BrowserVideoInput {
 
 const MAX_STORED_FRAMES = 12;
 const ONBOARDING_DISMISSED_KEY = 'skillloomOnboardingDismissed';
+const OUTPUT_MODE_STORAGE_KEY = 'skillloomOutputMode';
 
 const browserLabelEl = document.getElementById('browser-label');
+const modeAgentBtn = document.getElementById('mode-agent-btn') as HTMLButtonElement | null;
+const modeStudyBtn = document.getElementById('mode-study-btn') as HTMLButtonElement | null;
 const titleEl = document.getElementById('video-title');
 const metaEl = document.getElementById('video-meta');
 const chipsEl = document.getElementById('signal-chips');
@@ -76,10 +81,46 @@ const dismissOnboardingBtn = document.getElementById('dismiss-onboarding-btn') a
 let activeVideo: ActiveTabVideo | null = null;
 let activeTabId: number | null = null;
 let aiController: AiSettingsController | null = null;
-let savedRepoHandle: DirectoryHandleLike | null = null;
+let activeOutputMode: SkillOutputMode = 'agent';
+let savedDirHandles: Record<SkillOutputMode, DirectoryHandleLike | null> = {
+  agent: null,
+  study: null,
+};
 let isRecordingAudio = false;
 let recordingTimerInterval: ReturnType<typeof setInterval> | null = null;
 let activeAutoCapturePromise: Promise<CapturedFrame[]> | null = null;
+
+function getActiveSavedHandle(): DirectoryHandleLike | null {
+  return savedDirHandles[activeOutputMode];
+}
+
+function applyOutputModeUi(): void {
+  const isStudy = activeOutputMode === 'study';
+  if (modeAgentBtn) {
+    modeAgentBtn.className = !isStudy ? 'mode-btn active' : 'mode-btn';
+    modeAgentBtn.setAttribute('aria-selected', !isStudy ? 'true' : 'false');
+  }
+  if (modeStudyBtn) {
+    modeStudyBtn.className = isStudy ? 'mode-btn active' : 'mode-btn';
+    modeStudyBtn.setAttribute('aria-selected', isStudy ? 'true' : 'false');
+  }
+  const handle = getActiveSavedHandle();
+  if (isStudy) {
+    setInstallBtnText(handle ? `Save to ${handle.name}/` : 'Choose Study Vault...');
+    if (copyPromptBtn) copyPromptBtn.textContent = 'Copy Study Prompt';
+    if (exportMdBtn) exportMdBtn.textContent = 'Download Single NOTES.md';
+    if (exportBtn) exportBtn.textContent = 'Download Study Package (.zip)';
+    if (changeRepoBtn) changeRepoBtn.textContent = 'Change Study Vault Folder...';
+    if (agentFolderBtn) agentFolderBtn.textContent = 'Open Study Studio →';
+  } else {
+    setInstallBtnText(handle ? `Install to ${handle.name}/` : 'Choose Skills Repo...');
+    if (copyPromptBtn) copyPromptBtn.textContent = 'Copy Prompt';
+    if (exportMdBtn) exportMdBtn.textContent = 'Download Single SKILL.md';
+    if (exportBtn) exportBtn.textContent = 'Download Skill Package (.zip)';
+    if (changeRepoBtn) changeRepoBtn.textContent = 'Change Saved Skills Folder...';
+    if (agentFolderBtn) agentFolderBtn.textContent = 'Open Skill Studio →';
+  }
+}
 
 function setStatus(msg: string, tone: 'neutral' | 'success' | 'error' | 'busy' = 'neutral'): void {
   if (!statusEl) return;
@@ -174,19 +215,26 @@ function triggerBinaryDownload(filename: string, bytes: Uint8Array, mime: string
 
 function renderVideoSummary(): void {
   if (!activeVideo) return;
-  const previewPkg = buildBrowserSkillPackage(activeVideo);
+  const previewPkg = buildBrowserSkillPackage({ ...activeVideo, outputMode: activeOutputMode });
   const capCount = activeVideo.transcriptSegments?.length || 0;
   const frameCount = activeVideo.capturedFrames?.length || 0;
   const linkCount = activeVideo.labeledLinks?.length || 0;
 
   if (metaEl) {
-    const platformLabel = activeVideo.sourcePlatform === 'instagram' ? 'Instagram Reel' : 'YouTube';
+    const platformLabel =
+      activeVideo.sourcePlatform === 'instagram'
+        ? 'Instagram Reel'
+        : activeVideo.sourcePlatform === 'twitter'
+          ? 'X / Twitter'
+          : 'YouTube';
     const mins =
       activeVideo.durationSeconds > 0
         ? activeVideo.durationSeconds < 60
           ? `${activeVideo.durationSeconds}s`
           : `${Math.max(1, Math.round(activeVideo.durationSeconds / 60))} min`
-        : 'Live / Loading';
+        : activeVideo.sourcePlatform === 'twitter'
+          ? `${capCount} lines`
+          : 'Live / Loading';
     metaEl.textContent = `${platformLabel} · ${activeVideo.channelName} · ${mins} · ${previewPkg.domain}`;
   }
 
@@ -337,13 +385,13 @@ async function buildAndAutoDistill(video: ActiveTabVideo): Promise<{
       // Fall back to individual frames if canvas stitching fails
     }
   }
-  const draft = buildBrowserSkillPackage(videoForBuild);
+  const draft = buildBrowserSkillPackage({ ...videoForBuild, outputMode: activeOutputMode });
   const cfg = aiController?.getConfig();
   if (!cfg || cfg.provider === 'none' || !cfg.autoDistillOnExport) {
     return { pkg: draft };
   }
   const preset = AI_PROVIDER_PRESETS[cfg.provider];
-  setStatus(`Auto-distilling SKILL.md with ${preset.label}...`, 'busy');
+  setStatus(`Auto-distilling ${draft.primaryFilename} with ${preset.label}...`, 'busy');
   const granted = await requestProviderPermission(cfg.provider);
   if (!granted) {
     return {
@@ -406,10 +454,12 @@ async function initPopup(): Promise<void> {
     }
   });
 
-  savedRepoHandle = await loadSavedSkillsRepoHandle();
-  setInstallBtnText(
-    savedRepoHandle ? `Install to ${savedRepoHandle.name}/` : 'Choose Skills Repo...'
-  );
+  const [agentHandle, studyHandle] = await Promise.all([
+    loadSavedDirHandle('agent'),
+    loadSavedDirHandle('study'),
+  ]);
+  savedDirHandles = { agent: agentHandle, study: studyHandle };
+  applyOutputModeUi();
 
   const chromeApi = (globalThis as {
     chrome?: {
@@ -448,6 +498,7 @@ async function initPopup(): Promise<void> {
               >;
               activeReelRecording?: { videoId?: string; tabId?: number; startedAt?: number } | null;
               skillloomOnboardingDismissed?: boolean;
+              skillloomOutputMode?: SkillOutputMode;
             }) => void
           ) => void;
           set: (items: Record<string, unknown>, cb?: () => void) => void;
@@ -485,9 +536,36 @@ async function initPopup(): Promise<void> {
 
   if (!chromeApi?.tabs) return;
 
+  if (chromeApi.storage?.local.get) {
+    chromeApi.storage.local.get(OUTPUT_MODE_STORAGE_KEY, (res) => {
+      if (res?.skillloomOutputMode === 'study' || res?.skillloomOutputMode === 'agent') {
+        activeOutputMode = res.skillloomOutputMode;
+        applyOutputModeUi();
+        renderVideoSummary();
+      }
+    });
+  }
+
+  const switchMode = (nextMode: SkillOutputMode) => {
+    if (activeOutputMode === nextMode) return;
+    activeOutputMode = nextMode;
+    chromeApi.storage?.local.set({ [OUTPUT_MODE_STORAGE_KEY]: nextMode });
+    applyOutputModeUi();
+    renderVideoSummary();
+    if (activeVideo) {
+      setStatus(
+        nextMode === 'study'
+          ? 'Switched to Study Notes mode (Obsidian-ready NOTES.md + Active Recall quiz).'
+          : 'Switched to Agent Skill mode (7-section SKILL.md for coding agents).'
+      );
+    }
+  };
+  modeAgentBtn?.addEventListener('click', () => switchMode('agent'));
+  modeStudyBtn?.addEventListener('click', () => switchMode('study'));
+
   // Show compact first-run tip only when neither repo nor AI provider is configured yet
   if (onboardingTipEl) {
-    const needsSetup = !savedRepoHandle && aiController.getConfig().provider === 'none';
+    const needsSetup = !getActiveSavedHandle() && aiController.getConfig().provider === 'none';
     if (needsSetup && chromeApi.storage?.local.get) {
       chromeApi.storage.local.get(ONBOARDING_DISMISSED_KEY, (res) => {
         if (!res?.[ONBOARDING_DISMISSED_KEY]) {
@@ -741,13 +819,13 @@ async function initPopup(): Promise<void> {
 
   const applyDetectedVideo = (data?: ActiveTabVideo, diagnosticReason?: string) => {
     if (!data) {
-      if (titleEl) titleEl.textContent = 'No YouTube video or Instagram Reel open';
+      if (titleEl) titleEl.textContent = 'No YouTube, Reel, or X post open';
       if (metaEl) {
         metaEl.textContent =
-          'Open any YouTube video/Short or Instagram Reel (/reel/... or /reels/...), then click SkillLoom.';
+          'Open any YouTube video/Short, Instagram Reel, or X / Twitter post, then click SkillLoom.';
       }
       setStatus(
-        diagnosticReason || 'Waiting for a supported YouTube or Instagram Reel tab.',
+        diagnosticReason || 'Waiting for a supported YouTube, Instagram Reel, or X tab.',
         diagnosticReason ? 'error' : 'neutral'
       );
       return;
@@ -762,32 +840,38 @@ async function initPopup(): Promise<void> {
         const capCount = activeVideo.transcriptSegments?.length || 0;
         const frameCount = activeVideo.capturedFrames?.length || 0;
         const isIg = activeVideo.sourcePlatform === 'instagram';
-        const previewPkg = buildBrowserSkillPackage(activeVideo);
+        const isTwitter = activeVideo.sourcePlatform === 'twitter';
+        const currentSavedHandle = getActiveSavedHandle();
+        const previewPkg = buildBrowserSkillPackage({ ...activeVideo, outputMode: activeOutputMode });
+        const folderVerb = activeOutputMode === 'study' ? 'Save to' : 'Install to';
+        const chooseHint = activeOutputMode === 'study' ? 'Choose Study Vault' : 'Choose Skills Repo';
         if (overrideBanner) {
           setStatus(overrideBanner, frameCount > 0 ? 'neutral' : 'error');
         } else if (capCount === 0 && previewPkg.coverageLevel === 'VISUAL_HEAVY_NEEDS_FRAMES') {
           setStatus(
             isIg
               ? `Auto-captured ${frameCount} frame(s) across Reel — ready for Install or Record Audio!`
-              : 'No captions auto-loaded yet — Auto-Frames scanning or open YouTube transcript.',
+              : isTwitter
+                ? 'X post has no text extracted yet — capture frames or open the full thread.'
+                : 'No captions auto-loaded yet — Auto-Frames scanning or open YouTube transcript.',
             isIg && frameCount > 0 ? 'neutral' : 'error'
           );
         } else if (capCount === 0 && isIg) {
           setStatus(
-            savedRepoHandle
-              ? `Auto-captured Reel (${frameCount} frame(s)) ✓ Click "Install to ${savedRepoHandle.name}/" or "Copy Prompt".`
-              : `Auto-captured Reel (${frameCount} frame(s)) ✓ Choose your Skills Repo (Plan A) or "Copy Prompt" (Plan B).`,
+            currentSavedHandle
+              ? `Auto-captured Reel (${frameCount} frame(s)) ✓ Click "${folderVerb} ${currentSavedHandle.name}/" or "Copy Prompt".`
+              : `Auto-captured Reel (${frameCount} frame(s)) ✓ ${chooseHint} (Plan A) or Copy Prompt (Plan B).`,
             'success'
           );
         } else if (previewPkg.coverageLevel === 'VISUAL_HEAVY_NEEDS_FRAMES') {
           setStatus(
-            `Captured ${capCount} captions + ${frameCount} auto frame(s) — ready to Install or Copy Prompt.`
+            `Captured ${capCount} lines + ${frameCount} auto frame(s) — ready for Plan A or Plan B.`
           );
         } else {
           setStatus(
-            savedRepoHandle
-              ? `Ready! Click "Install to ${savedRepoHandle.name}/" or Plan B: "Copy Prompt".`
-              : `Ready! Choose your Skills Repo folder once (Plan A) or "Copy Prompt" (Plan B).`,
+            currentSavedHandle
+              ? `Ready! Click "${folderVerb} ${currentSavedHandle.name}/" or Plan B Copy Prompt.`
+              : `Ready! ${chooseHint} once (Plan A) or Copy Prompt (Plan B).`,
             'success'
           );
         }
@@ -847,9 +931,9 @@ async function initPopup(): Promise<void> {
     tabUrl: string,
     tabTitle: string | undefined,
     detectorFile: string | null,
-    isInstagramTab: boolean
+    socialKind: 'instagram' | 'twitter' | null
   ) => {
-    setStatus('Reading captions, description links & creator comments...', 'busy');
+    setStatus('Reading captions, thread text, links & creator comments...', 'busy');
     chromeApi.tabs.sendMessage(tabId, { type: 'GET_ACTIVE_VIDEO' }, (res) => {
       const sendErr = chromeApi.runtime.lastError?.message;
       if (!sendErr && res?.ok) {
@@ -865,17 +949,27 @@ async function initPopup(): Promise<void> {
             const injectErr = chromeApi.runtime.lastError?.message;
             if (injectErr) {
               const handleBlockedDiagnose = (grantedOrigins: string[]) => {
-                const igGranted = grantedOrigins.some((o) => o.includes('instagram.com'));
-                if (!igGranted && isInstagramTab && grantSiteBtn) {
+                const domainCheck =
+                  socialKind === 'twitter' ? ['x.com', 'twitter.com'] : ['instagram.com'];
+                const siteGranted = grantedOrigins.some((o) =>
+                  domainCheck.some((d) => o.includes(d))
+                );
+                const siteLabel = socialKind === 'twitter' ? 'X / Twitter' : 'Instagram';
+                if (!siteGranted && socialKind && grantSiteBtn) {
+                  grantSiteBtn.textContent = `Allow ${siteLabel} Access & Retry`;
                   grantSiteBtn.style.display = 'block';
                 }
-                const detail = !igGranted && isInstagramTab
-                  ? `${profile.label} withheld instagram.com permission (${injectErr}). Click "Allow Instagram Access & Retry" above.`
-                  : `${profile.label} blocked DOM access (${injectErr}) — check Site access for instagram.com.`;
-                const igFallback = isInstagramTab
-                  ? (buildFallbackInstagramVideoFromTab(tabUrl, tabTitle) as ActiveTabVideo | null)
-                  : null;
-                applyDetectedVideo(igFallback ?? undefined, detail);
+                const detail =
+                  !siteGranted && socialKind
+                    ? `${profile.label} withheld ${siteLabel} permission (${injectErr}). Click "Allow ${siteLabel} Access & Retry" above.`
+                    : `${profile.label} blocked DOM access (${injectErr}) — check Site access for ${siteLabel}.`;
+                const socialFallback =
+                  socialKind === 'instagram'
+                    ? (buildFallbackInstagramVideoFromTab(tabUrl, tabTitle) as ActiveTabVideo | null)
+                    : socialKind === 'twitter'
+                      ? (buildFallbackTwitterPostFromTab(tabUrl, tabTitle) as ActiveTabVideo | null)
+                      : null;
+                applyDetectedVideo(socialFallback ?? undefined, detail);
               };
 
               if (chromeApi.permissions?.getAll) {
@@ -891,12 +985,14 @@ async function initPopup(): Promise<void> {
             chromeApi.tabs.sendMessage(tabId, { type: 'GET_ACTIVE_VIDEO' }, (retryRes) => {
               const retryErr = chromeApi.runtime.lastError?.message;
               const typedRetry = retryRes as { ok?: boolean; data?: ActiveTabVideo; reason?: string } | undefined;
-              const igFallback =
-                !typedRetry?.ok && isInstagramTab
+              const socialFallback =
+                !typedRetry?.ok && socialKind === 'instagram'
                   ? (buildFallbackInstagramVideoFromTab(tabUrl, tabTitle) as ActiveTabVideo | null)
-                  : null;
+                  : !typedRetry?.ok && socialKind === 'twitter'
+                    ? (buildFallbackTwitterPostFromTab(tabUrl, tabTitle) as ActiveTabVideo | null)
+                    : null;
               applyDetectedVideo(
-                typedRetry?.ok ? typedRetry.data : (igFallback ?? undefined),
+                typedRetry?.ok ? typedRetry.data : (socialFallback ?? undefined),
                 typedRetry?.ok
                   ? undefined
                   : retryErr || typedRetry?.reason || `Could not extract content on ${tabUrl}.`
@@ -926,22 +1022,35 @@ async function initPopup(): Promise<void> {
     const tabUrl = tab?.url || '';
     const tabTitle = tab?.title;
     const isInstagramTab = /^https:\/\/(?:[a-z0-9-]+\.)?instagram\.com\//i.test(tabUrl);
+    const isTwitterTab = /^https:\/\/(?:www\.|mobile\.)?(?:x\.com|twitter\.com)\//i.test(tabUrl);
     const isYouTubeTab = /^https:\/\/(?:[a-z0-9-]+\.)?youtube\.com\//i.test(tabUrl);
+    const socialKind: 'instagram' | 'twitter' | null = isInstagramTab
+      ? 'instagram'
+      : isTwitterTab
+        ? 'twitter'
+        : null;
     const detectorFile = isInstagramTab
       ? 'content/instagram-detector.js'
-      : isYouTubeTab
-        ? 'content/youtube-detector.js'
-        : null;
+      : isTwitterTab
+        ? 'content/twitter-detector.js'
+        : isYouTubeTab
+          ? 'content/youtube-detector.js'
+          : null;
 
     grantSiteBtn?.addEventListener('click', async () => {
+      const requestedOrigins =
+        socialKind === 'twitter'
+          ? ['https://x.com/*', 'https://twitter.com/*']
+          : ['https://www.instagram.com/*', 'https://instagram.com/*'];
+      const siteLabel = socialKind === 'twitter' ? 'x.com / twitter.com' : 'instagram.com';
       if (!chromeApi.permissions?.request) {
-        setStatus(`Open ${extensionsUrl} → SkillLoom → Details → Site access and enable instagram.com.`, 'error');
+        setStatus(`Open ${extensionsUrl} → SkillLoom → Details → Site access and enable ${siteLabel}.`, 'error');
         return;
       }
       try {
         const granted = await new Promise<boolean>((resolve) => {
           const maybePromise = chromeApi.permissions!.request!(
-            { origins: ['https://www.instagram.com/*', 'https://instagram.com/*'] },
+            { origins: requestedOrigins },
             (ok) => resolve(Boolean(ok))
           );
           if (maybePromise && typeof (maybePromise as Promise<boolean>).then === 'function') {
@@ -949,22 +1058,22 @@ async function initPopup(): Promise<void> {
           }
         });
         if (granted) {
-          runActiveTabScan(tabId, tabUrl, tabTitle, detectorFile, isInstagramTab);
+          runActiveTabScan(tabId, tabUrl, tabTitle, detectorFile, socialKind);
         } else {
           setStatus(
-            `Permission denied/withheld by ${profile.label} — open ${extensionsUrl} → SkillLoom → Details → Site access and allow instagram.com.`,
+            `Permission denied/withheld by ${profile.label} — open ${extensionsUrl} → SkillLoom → Details → Site access and allow ${siteLabel}.`,
             'error'
           );
         }
       } catch {
         setStatus(
-          `${profile.label} blocked automatic request — open ${extensionsUrl} → SkillLoom → Details → Site access (enable instagram.com).`,
+          `${profile.label} blocked automatic request — open ${extensionsUrl} → SkillLoom → Details → Site access (enable ${siteLabel}).`,
           'error'
         );
       }
     });
 
-    runActiveTabScan(tabId, tabUrl, tabTitle, detectorFile, isInstagramTab);
+    runActiveTabScan(tabId, tabUrl, tabTitle, detectorFile, socialKind);
   });
 
   snapFrameBtn?.addEventListener('click', () => {
@@ -1110,25 +1219,32 @@ async function initPopup(): Promise<void> {
       }
     }
     if (chromeApi.storage?.local && chromeApi.tabs.create && chromeApi.runtime.getURL) {
-      chromeApi.storage.local.set({ pendingAgentBundle: activeVideo }, () => {
-        const base = chromeApi.runtime.getURL!('popup/handoff.html');
-        chromeApi.tabs.create!({ url: action ? `${base}?action=${action}` : base });
-      });
+      chromeApi.storage.local.set(
+        {
+          pendingAgentBundle: { ...activeVideo, outputMode: activeOutputMode },
+          [OUTPUT_MODE_STORAGE_KEY]: activeOutputMode,
+        },
+        () => {
+          const base = chromeApi.runtime.getURL!('popup/handoff.html');
+          chromeApi.tabs.create!({ url: action ? `${base}?action=${action}` : base });
+        }
+      );
       return;
     }
-    const pkg = buildBrowserSkillPackage(activeVideo);
+    const pkg = buildBrowserSkillPackage({ ...activeVideo, outputMode: activeOutputMode });
     triggerBinaryDownload(pkg.zipFilename, pkg.zipBytes, 'application/zip');
-    setStatus(`Downloaded ${pkg.zipFilename} (${pkg.files.length} skill files).`, 'success');
+    setStatus(`Downloaded ${pkg.zipFilename} (${pkg.files.length} files).`, 'success');
   };
 
   installRepoBtn?.addEventListener('click', async () => {
     if (!activeVideo || !installRepoBtn) return;
-    if (!savedRepoHandle) {
+    const currentHandle = getActiveSavedHandle();
+    if (!currentHandle) {
       launchStudio('chooseRepo');
       return;
     }
-    const permState = savedRepoHandle.queryPermission
-      ? await savedRepoHandle.queryPermission({ mode: 'readwrite' }).catch(() => 'prompt')
+    const permState = currentHandle.queryPermission
+      ? await currentHandle.queryPermission({ mode: 'readwrite' }).catch(() => 'prompt')
       : 'granted';
     if (permState !== 'granted') {
       launchStudio('installRepo');
@@ -1145,16 +1261,16 @@ async function initPopup(): Promise<void> {
         );
         return;
       }
-      const installed = await installSkillPackageToDirectoryHandle(pkg, savedRepoHandle);
+      const installed = await installSkillPackageToDirectoryHandle(pkg, currentHandle);
       const skippedAi = Boolean(distillNote && /^AI distill skipped/i.test(distillNote));
       const draftTag = pkg.qualityReport.grade === 'DRAFT' ? ` [Draft ${pkg.qualityReport.score}/100]` : ` [${pkg.qualityReport.score}/100]`;
       setStatus(
-        `${distillNote ? `${distillNote} ` : ''}Installed ${installed.fileCount} files${draftTag} into ${installed.installedPath}!`,
+        `${distillNote ? `${distillNote} ` : ''}Saved ${installed.fileCount} files${draftTag} into ${installed.installedPath}!`,
         skippedAi ? 'error' : 'success'
       );
     } catch (err: unknown) {
       setStatus(
-        `Could not write directly to saved repo (${err instanceof Error ? err.message : 'locked'}). Opening Skill Studio...`,
+        `Could not write directly to saved folder (${err instanceof Error ? err.message : 'locked'}). Opening Studio...`,
         'error'
       );
       launchStudio('installRepo');
@@ -1182,7 +1298,7 @@ async function initPopup(): Promise<void> {
         'success'
       );
     } catch {
-      const fallback = buildBrowserSkillPackage(activeVideo);
+      const fallback = buildBrowserSkillPackage({ ...activeVideo, outputMode: activeOutputMode });
       triggerBinaryDownload(fallback.zipFilename, fallback.zipBytes, 'application/zip');
       setStatus(`Clipboard blocked — downloaded ${fallback.zipFilename} instead.`);
     } finally {
@@ -1211,9 +1327,10 @@ async function initPopup(): Promise<void> {
     try {
       const { pkg, distillNote } = await buildAndAutoDistill(activeVideo);
       const mdBytes = new TextEncoder().encode(pkg.files[0]?.content || '');
-      triggerBinaryDownload(`${pkg.slug}-SKILL.md`, mdBytes, 'text/markdown;charset=utf-8');
+      const mdFilename = `${pkg.slug}-${pkg.primaryFilename}`;
+      triggerBinaryDownload(mdFilename, mdBytes, 'text/markdown;charset=utf-8');
       setStatus(
-        `${distillNote ? `${distillNote} ` : ''}Downloaded ${pkg.slug}-SKILL.md!`,
+        `${distillNote ? `${distillNote} ` : ''}Downloaded ${mdFilename}!`,
         'success'
       );
     } finally {

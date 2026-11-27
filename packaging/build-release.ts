@@ -250,6 +250,14 @@ export async function buildReleaseArtifacts(rootDir = process.cwd()): Promise<{
       platform: 'browser',
     }),
     esbuild.build({
+      entryPoints: [path.resolve(rootDir, 'apps/extension/content/twitter-detector.ts')],
+      outfile: path.join(extensionDir, 'content/twitter-detector.js'),
+      bundle: true,
+      format: 'iife',
+      target: ['chrome114', 'edge114'],
+      platform: 'browser',
+    }),
+    esbuild.build({
       entryPoints: [path.resolve(rootDir, 'apps/extension/offscreen/offscreen.ts')],
       outfile: path.join(extensionDir, 'offscreen/offscreen.js'),
       bundle: true,

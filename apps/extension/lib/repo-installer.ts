@@ -5,6 +5,7 @@
  * that folder on every future capture with zero `.zip` or `.json` juggling.
  */
 import type { BrowserGeneratedSkillPackage } from './browser-skill-builder';
+import type { SkillOutputMode } from './skill-distiller';
 
 export interface WritableFileLike {
   write: (data: string | Uint8Array) => Promise<void>;
@@ -24,7 +25,10 @@ export interface DirectoryHandleLike {
 
 const DB_NAME = 'skillloom-settings-db';
 const STORE_NAME = 'handles';
-const REPO_HANDLE_KEY = 'skillsRepoDir';
+const HANDLE_KEYS: Record<SkillOutputMode, string> = {
+  agent: 'skillsRepoDir',
+  study: 'studyVaultDir',
+};
 
 function openHandleDb(): Promise<IDBDatabase | null> {
   if (typeof indexedDB === 'undefined') return Promise.resolve(null);
@@ -40,13 +44,15 @@ function openHandleDb(): Promise<IDBDatabase | null> {
   });
 }
 
-export async function loadSavedSkillsRepoHandle(): Promise<DirectoryHandleLike | null> {
+export async function loadSavedDirHandle(
+  mode: SkillOutputMode = 'agent'
+): Promise<DirectoryHandleLike | null> {
   const db = await openHandleDb();
   if (!db) return null;
   try {
     return await new Promise<DirectoryHandleLike | null>((resolve) => {
       const tx = db.transaction(STORE_NAME, 'readonly');
-      const getReq = tx.objectStore(STORE_NAME).get(REPO_HANDLE_KEY);
+      const getReq = tx.objectStore(STORE_NAME).get(HANDLE_KEYS[mode]);
       getReq.onsuccess = () => resolve((getReq.result as DirectoryHandleLike | undefined) || null);
       getReq.onerror = () => resolve(null);
     });
@@ -55,13 +61,16 @@ export async function loadSavedSkillsRepoHandle(): Promise<DirectoryHandleLike |
   }
 }
 
-export async function saveSkillsRepoHandle(handle: DirectoryHandleLike): Promise<boolean> {
+export async function saveDirHandle(
+  handle: DirectoryHandleLike,
+  mode: SkillOutputMode = 'agent'
+): Promise<boolean> {
   const db = await openHandleDb();
   if (!db) return false;
   try {
     return await new Promise<boolean>((resolve) => {
       const tx = db.transaction(STORE_NAME, 'readwrite');
-      const putReq = tx.objectStore(STORE_NAME).put(handle, REPO_HANDLE_KEY);
+      const putReq = tx.objectStore(STORE_NAME).put(handle, HANDLE_KEYS[mode]);
       putReq.onsuccess = () => resolve(true);
       putReq.onerror = () => resolve(false);
     });
@@ -70,7 +79,9 @@ export async function saveSkillsRepoHandle(handle: DirectoryHandleLike): Promise
   }
 }
 
-export async function pickAndSaveSkillsRepoHandle(): Promise<{
+export async function pickAndSaveDirHandle(
+  mode: SkillOutputMode = 'agent'
+): Promise<{
   ok: boolean;
   handle?: DirectoryHandleLike;
   error?: string;
@@ -84,13 +95,13 @@ export async function pickAndSaveSkillsRepoHandle(): Promise<{
   if (!picker) {
     return {
       ok: false,
-      error: 'Folder Access API is unavailable here; use Download .zip or Copy Skill Prompt instead.',
+      error: 'Folder Access API is unavailable here; use Download .zip or Copy Prompt instead.',
     };
   }
 
   try {
     const handle = await picker({ mode: 'readwrite' });
-    await saveSkillsRepoHandle(handle);
+    await saveDirHandle(handle, mode);
     return { ok: true, handle };
   } catch (err: unknown) {
     if (err instanceof Error && err.name === 'AbortError') {
@@ -98,14 +109,19 @@ export async function pickAndSaveSkillsRepoHandle(): Promise<{
     }
     const msg = err instanceof Error ? err.message : String(err);
     const isRestrictedDotFolder = /system files|not allowed|security/i.test(msg);
+    const suggestedFolder = mode === 'study' ? 'Documents/StudyVault' : 'Documents/Skills';
     return {
       ok: false,
       error: isRestrictedDotFolder
-        ? 'Chrome/Edge blocks direct access to hidden dot-folders (.gemini / .claude). Pick a standard folder (e.g. Documents/Skills) or use Plan B: Copy Skill Prompt.'
+        ? `Chrome/Edge blocks direct access to hidden dot-folders (.gemini / .claude). Pick a standard folder (e.g. ${suggestedFolder}) or use Plan B: Copy Prompt.`
         : msg,
     };
   }
 }
+
+export const loadSavedSkillsRepoHandle = () => loadSavedDirHandle('agent');
+export const saveSkillsRepoHandle = (handle: DirectoryHandleLike) => saveDirHandle(handle, 'agent');
+export const pickAndSaveSkillsRepoHandle = () => pickAndSaveDirHandle('agent');
 
 export async function ensureReadWritePermission(handle: DirectoryHandleLike): Promise<boolean> {
   if (handle.queryPermission) {

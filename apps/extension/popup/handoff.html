@@ -649,14 +649,18 @@
         </div>
 
         <div class="slug-control">
-          <label class="slug-label" for="slug-input">Skill folder:</label>
+          <div style="display:inline-flex;gap:4px;padding:3px;background:#090d16;border:1px solid rgba(148,163,184,0.22);border-radius:8px;" role="tablist" aria-label="Output mode">
+            <button class="tab-btn active" id="studio-mode-agent-btn" type="button" role="tab" aria-selected="true" style="padding:4px 9px;font-size:11px;">🤖 Agent Skill</button>
+            <button class="tab-btn" id="studio-mode-study-btn" type="button" role="tab" aria-selected="false" style="padding:4px 9px;font-size:11px;">📚 Study Notes</button>
+          </div>
+          <label class="slug-label" for="slug-input" id="slug-label">Folder:</label>
           <input
             class="slug-input"
             id="slug-input"
             type="text"
             spellcheck="false"
             placeholder="custom-skill-slug"
-            aria-label="Skill folder slug name"
+            aria-label="Output folder slug name"
           />
           <span class="cov-pill" id="coverage-pill">MODERATE</span>
         </div>
@@ -716,7 +720,7 @@
 
           <section class="panel" aria-label="Install and export options">
             <h2 class="panel-title">
-              <span>Install to Agent</span>
+              <span id="studio-install-heading">Install to Agent</span>
               <span class="plan-badge">Plan A · Recommended</span>
             </h2>
             <div class="repo-row">

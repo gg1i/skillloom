@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
-  "name": "SkillLoom — Free Local-First Video & Reels to AI Skills",
+  "name": "SkillLoom — Free Local-First Video, Reels & X to Skills or Study Notes",
   "short_name": "SkillLoom",
-  "version": "2.0.0",
-  "description": "Turn YouTube tutorials & Instagram Reels into validated AI skills locally — auto-storyboards, BYOK/Ollama & 1-click repo install.",
+  "version": "2.1.0",
+  "description": "Turn YouTube, Reels & X posts into AI Agent Skills or Study Revision Notes locally — BYOK/Ollama & 1-click folder save.",
   "minimum_chrome_version": "114",
   "permissions": [
     "activeTab",
@@ -15,7 +15,9 @@
   "host_permissions": [
     "https://www.youtube.com/*",
     "https://www.instagram.com/*",
-    "https://instagram.com/*"
+    "https://instagram.com/*",
+    "https://x.com/*",
+    "https://twitter.com/*"
   ],
   "optional_host_permissions": [
     "http://127.0.0.1/*",
@@ -52,6 +54,11 @@
     {
       "matches": ["https://www.instagram.com/*", "https://instagram.com/*"],
       "js": ["content/instagram-detector.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://x.com/*", "https://twitter.com/*"],
+      "js": ["content/twitter-detector.js"],
       "run_at": "document_idle"
     }
   ]

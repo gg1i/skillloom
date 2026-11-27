@@ -1,5 +1,5 @@
 {
-  "version": "2.0.0",
+  "version": "2.1.0",
   "productName": "SkillLoom",
   "businessModel": "free-local-first-extension-only",
   "publicationNotice": "Live on Microsoft Edge Add-ons. Chrome Web Store and Opera Add-ons remain unpublished until approved.",
@@ -10,8 +10,8 @@
       "storeName": "Chrome Web Store",
       "publicationStatus": "UNPUBLISHED_STORE_SUBMISSION_READY",
       "extensionId": "REPLACE_WITH_APPROVED_CHROME_WEB_STORE_ID",
-      "zipFileName": "skillloom-chrome-web-store-v2.0.0.zip",
-      "notes": "Primary Manifest V3 package for Chrome Web Store review. Uses minimal scoped permissions (activeTab, scripting, storage, tabCapture, offscreen, YouTube, Instagram) and optional permissions for local Ollama/LM Studio and BYOK providers."
+      "zipFileName": "skillloom-chrome-web-store-v2.1.0.zip",
+      "notes": "Primary Manifest V3 package for Chrome Web Store review. Uses minimal scoped permissions (activeTab, scripting, storage, tabCapture, offscreen, YouTube, Instagram, X/Twitter) and optional permissions for local Ollama/LM Studio and BYOK providers."
     },
     {
       "id": "microsoft-edge-addons",
@@ -20,8 +20,8 @@
       "publicationStatus": "PUBLISHED",
       "extensionId": "hgonifdpcgeeoenaffajegmlceinnihn",
       "storeUrl": "https://microsoftedge.microsoft.com/addons/detail/skillloom-%E2%80%94-free-localfi/hgonifdpcgeeoenaffajegmlceinnihn",
-      "zipFileName": "skillloom-microsoft-edge-addons-v2.0.0.zip",
-      "notes": "Published and live on Microsoft Edge Add-ons. Zero native host or companion binary required."
+      "zipFileName": "skillloom-microsoft-edge-addons-v2.1.0.zip",
+      "notes": "Published and live on Microsoft Edge Add-ons (v2.1.0 adds X/Twitter + Study Revision Notes mode + live Groq/OpenRouter probing). Zero native host or companion binary required."
     },
     {
       "id": "brave-compatible",
@@ -29,7 +29,7 @@
       "storeName": "Chrome Web Store (Brave Compatible)",
       "publicationStatus": "UNPUBLISHED_STORE_SUBMISSION_READY",
       "extensionId": "REPLACE_WITH_APPROVED_CHROME_WEB_STORE_ID",
-      "zipFileName": "skillloom-brave-compatible-v2.0.0.zip",
+      "zipFileName": "skillloom-brave-compatible-v2.1.0.zip",
       "notes": "Brave installs directly from the Chrome Web Store or via brave://extensions in Developer Mode."
     },
     {
@@ -38,7 +38,7 @@
       "storeName": "Opera Add-ons",
       "publicationStatus": "UNPUBLISHED_STORE_SUBMISSION_READY",
       "extensionId": "REPLACE_WITH_APPROVED_OPERA_ADDONS_ID",
-      "zipFileName": "skillloom-opera-addons-v2.0.0.zip",
+      "zipFileName": "skillloom-opera-addons-v2.1.0.zip",
       "notes": "Independent Opera Add-ons MV3 package. Pure extension-only local packaging with Plan A direct folder install and Plan B prompt/ZIP export."
     }
   ]
